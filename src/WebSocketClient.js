@@ -10,6 +10,20 @@ export const stompClient = new Client({
 
 stompClient.onConnect = () => {
   console.log('STOMP 연결 성공!');
+
+  // 구독
+  stompClient.subscribe('/sub/msg', (msg) => {
+    console.log('받은 메세지: ', JSON.parse(msg.body));
+  });
 };
 
 stompClient.activate(); // 연결 시작
+
+export const sendMessage = (msg) => {
+    if (stompClient.connected) {
+        stompClient.publish({
+            destination: '/pub/msg',
+            body: JSON.stringify({content: msg, sender: 'client'})
+        });
+    }
+}
