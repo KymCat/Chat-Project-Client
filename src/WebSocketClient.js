@@ -8,14 +8,17 @@ export const stompClient = new Client({
   reconnectDelay: 5000, // 연결 끊기면 5초 후 재연결
 });
 
-stompClient.onConnect = () => {
-  console.log('STOMP 연결 성공!');
+export const connectStomp = (onMessageReceived) => {
+    stompClient.onConnect = () => {
+        console.log("STOMP CONNECTED");
 
-  // 구독
-  stompClient.subscribe('/sub/msg', (msg) => {
-    console.log('받은 메세지: ', JSON.parse(msg.body));
-  });
-};
+        // 연결 후 구독
+        stompClient.subscribe('/sub/msg', (msg) => {
+            onMessageReceived(JSON.parse(msg.body));
+        });
+    };
+    stompClient.activate();
+}
 
 stompClient.activate(); // 연결 시작
 
