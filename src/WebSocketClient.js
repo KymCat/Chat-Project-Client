@@ -24,7 +24,7 @@ export const sendMessage = (msg) => {
     if (stompClient.connected) {
         stompClient.publish({
             destination: '/pub/msg',
-            body: JSON.stringify({content: msg, sender: 'client'})
+            body: JSON.stringify({content: msg.content, sender: msg.sender})
         });
     }
 }

@@ -3,16 +3,24 @@ import './css/app.css';
 import { connectStomp, sendMessage } from "./WebSocketClient";
 
 function App() {
-  const [input,setInput] = useState('');
-  const [messages, setMessages] = useState([]); // 메세지 리스트
-  const chatBoxRef = useRef(null); // 특정 DOM 요소,값에 접근하기 위한 훅
-  const nickName = 'client'; // 채팅 닉네임
+  // 채팅 입력칸
+  const [input,setInput] = useState({sender: '', content: ''});
+
+  // 메세지 리스트 관리
+  const [messages, setMessages] = useState([]); 
+
+  // 사용자 구분을 위한 랜덤 사용자 아이디
+  const [nickname] = useState(Math.random().toString(36).slice(2, 9));
+
+  // 채팅 자동 스크롤을 위한 DOM 요소,값 접근 훅
+  const chatBoxRef = useRef(null);
+  
 
   // 메시지 보내기
   const sendHandler = () => {
-    if (input.trim() !== '') {
-      sendMessage(input);
-      setInput('');
+    if (input.content && input.content.trim() !== '') {
+      sendMessage({sender: nickname, content: input.content});
+      setInput({sender: '', content: ''});
     }
   }
 
@@ -36,18 +44,18 @@ function App() {
         {messages.map((msg, idx) => (
           <div key={idx} 
             className={`chat-message ${
-              msg.sender === nickName ? 'my-message' : 'other-message'
+              msg.sender === nickname ? 'my-message' : 'other-message'
             }`}>
 
-            <strong>{msg.sender}: </strong>{msg.content}
+            <strong>{msg.sender === nickname ? '[me]' : '[other]'}: </strong>{msg.content}
           </div>
         ))}
       </div>
 
       <div className="chat-input">
         <input 
-          value={input} 
-          onChange={(e) => setInput(e.target.value)} 
+          value={input.content} 
+          onChange={(e) => setInput({...input, content: e.target.value})}
           onKeyDown={(e) => e.key === 'Enter' && sendHandler()}
           placeholder="메시지 입력"
         />
