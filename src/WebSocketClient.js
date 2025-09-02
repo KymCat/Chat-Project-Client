@@ -20,8 +20,6 @@ export const connectStomp = (onMessageReceived) => {
     stompClient.activate();
 }
 
-stompClient.activate(); // 연결 시작
-
 export const sendMessage = (msg) => {
     if (stompClient.connected) {
         stompClient.publish({

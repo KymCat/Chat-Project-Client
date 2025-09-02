@@ -1,7 +1,7 @@
 .chat-container {
   width: 400px;
-  margin: 20px auto;
-  font-family: Arial, sans-serif;
+  margin: 0 auto;
+  text-align: center;
 }
 
 .chat-box {
@@ -9,31 +9,33 @@
   height: 300px;
   overflow-y: auto;
   padding: 10px;
-  background-color: #f9f9f9;
-  margin-bottom: 10px;
+  background-color: #fafafa;
 }
 
 .chat-message {
-  margin-bottom: 5px;
+  margin: 5px 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  max-width: 70%;
+  word-wrap: break-word;
 }
 
-.chat-message strong {
-  color: #333;
+/* 내가 보낸 메시지 (오른쪽) */
+.my-message {
+  background-color: #d1f7c4;
+  margin-left: auto;
+  text-align: right;
+}
+
+/* 다른 사람이 보낸 메시지 (왼쪽) */
+.other-message {
+  background-color: #e4e6eb;
+  margin-right: auto;
+  text-align: left;
 }
 
 .chat-input {
+  margin-top: 10px;
   display: flex;
   gap: 5px;
-}
-
-.chat-input input {
-  flex: 1;
-  padding: 5px;
-  font-size: 14px;
-}
-
-.chat-input button {
-  padding: 5px 10px;
-  font-size: 14px;
-  cursor: pointer;
 }
