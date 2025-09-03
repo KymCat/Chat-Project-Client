@@ -1,13 +1,14 @@
 import React, {useEffect, useRef, useState} from "react";
 import './css/app.css';
-import { connectStomp, sendMessage, enterMessage } from "./WebSocketClient";
+import { connectStomp, sendMessage, enterMessage, stompClient } from "./WebSocketClient";
 
 function App() {
   // 채팅 입력칸
   const [input,setInput] = useState({
       sender: '', 
       content: '',
-      type: ''
+      type: '',
+      roomId:''
     });
 
   // 일반 메세지 리스트 관리
@@ -15,6 +16,9 @@ function App() {
 
   // 사용자 구분을 위한 랜덤 사용자 아이디
   const [nickname] = useState(Math.random().toString(36).slice(2, 9));
+
+  // 방 선택
+  const [roomId, setRoomId] = useState("room1");
 
   // 채팅 자동 스크롤을 위한 DOM 요소,값 접근 훅
   const chatBoxRef = useRef(null);
@@ -26,20 +30,29 @@ function App() {
       sendMessage({
           sender: nickname, 
           content: input.content,
-          type: "Chat"
+          type: "Chat",
+          roomId: roomId
         });
 
-      setInput({sender: '', content: '', type: ''});
+      setInput({sender: '', content: '', type: '', roomId: roomId});
     }
   }
 
   // 최초 웹 렌더링 후 STOMP 구독
   useEffect(() => {
+    setMessages([]); 
+    console.log(roomId);
+
     connectStomp(
       (msg) => setMessages(prev => [...prev, msg]),
-      () => enterMessage(nickname)
+      () => enterMessage(nickname, roomId),
+      roomId
     );
-  }, []); // 의존성 빈배열 == useEffect가 한번만 실행, 이후 실행 X
+
+    return () => {
+      stompClient.deactivate();
+    };
+  }, [roomId]); // 방이 바뀔때마다 렌더링
 
 
   useEffect(() => {
@@ -50,7 +63,17 @@ function App() {
 
   return (
     <div className="chat-container">
-      <h1>채팅 테스트</h1>
+      <h1>채팅 vmfhwprxm</h1>
+
+      {/* 1️⃣ 채팅방 선택 UI */}
+      <div className="room-select">
+        <label>채팅방 선택: </label>
+        <select value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+          <option value="room1">방 1</option>
+          <option value="room2">방 2</option>
+          <option value="room3">방 3</option>
+        </select>
+      </div>
 
       <div className="chat-box" ref={chatBoxRef}>
         {messages.map((msg, idx) => (
@@ -78,7 +101,7 @@ function App() {
       <div className="chat-input">
         <input 
           value={input.content} 
-          onChange={(e) => setInput({...input, content: e.target.value})}
+          onChange={(e) => setInput({...input, content: e.target.value, roomId:roomId})}
           onKeyDown={(e) => e.key === 'Enter' && sendHandler()}
           placeholder="메시지 입력"
         />

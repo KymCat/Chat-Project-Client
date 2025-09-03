@@ -8,17 +8,18 @@ export const stompClient = new Client({
   reconnectDelay: 5000, // 연결 끊기면 5초 후 재연결
 });
 
-export const connectStomp = (onChatMessage, onConnected) => {
+export const connectStomp = (onChatMessage, onConnected, roomId) => {
+
     stompClient.onConnect = () => {
-        console.log("STOMP CONNECTED");
+        console.log("STOMP CONNECTED " + roomId);
 
         // 일반 메세지 구독
-        stompClient.subscribe('/sub/msg', (msg) => {
+        stompClient.subscribe(`/sub/msg/${roomId}`, (msg) => {
             onChatMessage(JSON.parse(msg.body));
         });
 
         // 입장 메세지 구독
-        stompClient.subscribe('/sub/enter', (msg) => {
+        stompClient.subscribe(`/sub/enter/${roomId}`, (msg) => {
             onChatMessage(JSON.parse(msg.body));
         });
 
@@ -26,7 +27,7 @@ export const connectStomp = (onChatMessage, onConnected) => {
 
     };
     stompClient.activate();
-}
+};
 
 export const sendMessage = (msg) => {
     if (stompClient.connected) {
@@ -35,20 +36,22 @@ export const sendMessage = (msg) => {
             body: JSON.stringify(
                 {   content: msg.content, 
                     sender: msg.sender,
-                    type:msg.type
+                    type: msg.type,
+                    roomId: msg.roomId
                 })
         });
     }
 }
 
-export const enterMessage = (nickname) => {
+export const enterMessage = (nickname,roomId) => {
     if (stompClient.connected) {
         stompClient.publish( {
-            destination: "/pub/enter",
+            destination: '/pub/enter',
             body: JSON.stringify({
                 content:'',
                 sender: nickname,
-                type: 'Enter'
+                type: 'Enter',
+                roomId: roomId
             })
         })
     }
