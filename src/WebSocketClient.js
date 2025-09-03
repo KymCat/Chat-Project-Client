@@ -8,6 +8,14 @@ export const stompClient = new Client({
   reconnectDelay: 5000, // 연결 끊기면 5초 후 재연결
 });
 
+
+/**
+ * 채팅방 입장 시, 소켓 연결 및 채팅방 구독
+ * 
+ * @param {function(Object): void} onChatMessage        - 채팅 화면 갱신을 위한 useState의 set함수
+ * @param {function(String, String): void} onConnected  - 채팅 입장 시스템 메세지 전송 함수
+ * @param {String} roomId                               - 채팅방 번호
+ */
 export const connectStomp = (onChatMessage, onConnected, roomId) => {
 
     stompClient.onConnect = () => {
@@ -23,12 +31,18 @@ export const connectStomp = (onChatMessage, onConnected, roomId) => {
             onChatMessage(JSON.parse(msg.body));
         });
 
+        // 입장 메세지 전송
         if(onConnected) onConnected();
 
     };
     stompClient.activate();
 };
 
+/**
+ * 채팅 메세지 전송 함수
+ * 
+ * @param {Object} msg - 메세지 객체
+ */
 export const sendMessage = (msg) => {
     if (stompClient.connected) {
         stompClient.publish({
@@ -43,6 +57,12 @@ export const sendMessage = (msg) => {
     }
 }
 
+/**
+ * 채팅방 입장 메세지 전송 함수
+ * 
+ * @param {String} nickname     - 닉네임
+ * @param {String} roomId       - 채팅방 번호
+ */
 export const enterMessage = (nickname,roomId) => {
     if (stompClient.connected) {
         stompClient.publish( {

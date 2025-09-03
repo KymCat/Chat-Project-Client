@@ -4,12 +4,6 @@ import { connectStomp, sendMessage, enterMessage, stompClient } from "./WebSocke
 
 function App() {
   // 채팅 입력칸
-  const [input,setInput] = useState({
-      sender: '', 
-      content: '',
-      type: '',
-      roomId:''
-    });
 
   // 일반 메세지 리스트 관리
   const [messages, setMessages] = useState([]); 
@@ -22,26 +16,42 @@ function App() {
 
   // 채팅 자동 스크롤을 위한 DOM 요소,값 접근 훅
   const chatBoxRef = useRef(null);
+
+    const [input,setInput] = useState({
+      sender: nickname, 
+      content: '',
+      type: 'Chat',
+      roomId: roomId
+    });
   
 
-  // 메시지 보내기
+  /**
+   * 
+   * 채팅 전송 핸들러
+   * 채팅 입력 후, 엔터 혹은 전송 버튼 클릭시 호출
+   */
   const sendHandler = () => {
     if (input.content && input.content.trim() !== '') {
       sendMessage({
-          sender: nickname, 
+          sender: input.sender, 
           content: input.content,
-          type: "Chat",
-          roomId: roomId
+          type: input.type,
+          roomId: input.roomId
         });
 
-      setInput({sender: '', content: '', type: '', roomId: roomId});
+      setInput({sender: input.sender, content: '', type: input.type, roomId: input.roomId});
     }
   }
 
-  // 최초 웹 렌더링 후 STOMP 구독
+  /**
+   * 
+   * roomId가 변경될때마다 렌더링
+   * connectStomp() : 현재 채팅방 구독
+   * return() : 새롭게 렌더링 되기전에 stompClient 종료
+   */
   useEffect(() => {
-    setMessages([]); 
-    console.log(roomId);
+    setMessages([]);
+    setInput({sender: nickname, content: '', type: "Chat", roomId: roomId});
 
     connectStomp(
       (msg) => setMessages(prev => [...prev, msg]),
@@ -49,23 +59,28 @@ function App() {
       roomId
     );
 
-    return () => {
+    return () => { 
       stompClient.deactivate();
     };
-  }, [roomId]); // 방이 바뀔때마다 렌더링
+  }, [roomId]);
 
 
+  /**
+   * 
+   * messages가 바뀔때마다 스크롤을 맨 아래로 내리는 기능
+   */
   useEffect(() => {
     if (chatBoxRef.current) {
       chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
     }
-  }, [messages]); // 메시지가 추가될 때마다 렌더링
+  }, [messages]);
+
 
   return (
     <div className="chat-container">
-      <h1>채팅 vmfhwprxm</h1>
+      <h1>채팅 프로젝트</h1>
 
-      {/* 1️⃣ 채팅방 선택 UI */}
+      {/* 채팅방 선택*/}
       <div className="room-select">
         <label>채팅방 선택: </label>
         <select value={roomId} onChange={(e) => setRoomId(e.target.value)}>
@@ -75,6 +90,7 @@ function App() {
         </select>
       </div>
 
+      {/* 채팅 박스*/}
       <div className="chat-box" ref={chatBoxRef}>
         {messages.map((msg, idx) => (
           <div key={idx} 
@@ -98,10 +114,11 @@ function App() {
         ))}
       </div>
 
+      {/* 채팅 입력*/}
       <div className="chat-input">
         <input 
           value={input.content} 
-          onChange={(e) => setInput({...input, content: e.target.value, roomId:roomId})}
+          onChange={(e) => setInput({...input, content: e.target.value})}
           onKeyDown={(e) => e.key === 'Enter' && sendHandler()}
           placeholder="메시지 입력"
         />
