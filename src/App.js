@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from "react";
 import './css/app.css';
-import { connectStomp, sendMessage } from "./WebSocketClient";
+import { connectStomp, sendMessage, enterMessage } from "./WebSocketClient";
 
 function App() {
   // 채팅 입력칸
@@ -10,7 +10,7 @@ function App() {
       type: ''
     });
 
-  // 메세지 리스트 관리
+  // 일반 메세지 리스트 관리
   const [messages, setMessages] = useState([]); 
 
   // 사용자 구분을 위한 랜덤 사용자 아이디
@@ -26,10 +26,10 @@ function App() {
       sendMessage({
           sender: nickname, 
           content: input.content,
-          type: "MSG"
+          type: "Chat"
         });
 
-      setInput({sender: '', content: ''});
+      setInput({sender: '', content: '', type: ''});
     }
   }
 
@@ -37,7 +37,7 @@ function App() {
   useEffect(() => {
     connectStomp(
       (msg) => setMessages(prev => [...prev, msg]),
-      () => sendMessage({content: "상대방이 입장했습니다.", sender: "System", type: "ENTER"})
+      () => enterMessage(nickname)
     );
   }, []); // 의존성 빈배열 == useEffect가 한번만 실행, 이후 실행 X
 
@@ -52,15 +52,25 @@ function App() {
     <div className="chat-container">
       <h1>채팅 테스트</h1>
 
-      <div className="chat-box">
+      <div className="chat-box" ref={chatBoxRef}>
         {messages.map((msg, idx) => (
           <div key={idx} 
             className={`chat-message ${
-              msg.sender === "System" ? "system-messgae" : msg.sender === nickname ? "my-message" : "other-message"
+              msg.type === 'Enter' 
+                ? "system-message"
+                : msg.sender === nickname
+                  ? "my-message"
+                  : "other-message"
             }`}>
 
-            <strong>{msg.sender === "System" ? "[System]" : msg.sender === nickname ? "[me]" : "[other]"}: 
-            </strong>{msg.content}
+            <strong>{
+            msg.type === "Enter" 
+              ? "[System]" 
+              : msg.sender === nickname 
+                ? "[me]" 
+                : "[other]"}: 
+            </strong>
+            {msg.content}
           </div>
         ))}
       </div>

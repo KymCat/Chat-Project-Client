@@ -8,16 +8,22 @@ export const stompClient = new Client({
   reconnectDelay: 5000, // 연결 끊기면 5초 후 재연결
 });
 
-export const connectStomp = (onMessageReceived, connected) => {
+export const connectStomp = (onChatMessage, onConnected) => {
     stompClient.onConnect = () => {
         console.log("STOMP CONNECTED");
 
-        // 연결 후 구독
+        // 일반 메세지 구독
         stompClient.subscribe('/sub/msg', (msg) => {
-            onMessageReceived(JSON.parse(msg.body));
+            onChatMessage(JSON.parse(msg.body));
         });
 
-        if(connected) connected();
+        // 입장 메세지 구독
+        stompClient.subscribe('/sub/enter', (msg) => {
+            onChatMessage(JSON.parse(msg.body));
+        });
+
+        if(onConnected) onConnected();
+
     };
     stompClient.activate();
 }
@@ -32,5 +38,18 @@ export const sendMessage = (msg) => {
                     type:msg.type
                 })
         });
+    }
+}
+
+export const enterMessage = (nickname) => {
+    if (stompClient.connected) {
+        stompClient.publish( {
+            destination: "/pub/enter",
+            body: JSON.stringify({
+                content:'',
+                sender: nickname,
+                type: 'Enter'
+            })
+        })
     }
 }
