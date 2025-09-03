@@ -4,7 +4,11 @@ import { connectStomp, sendMessage } from "./WebSocketClient";
 
 function App() {
   // 채팅 입력칸
-  const [input,setInput] = useState({sender: '', content: ''});
+  const [input,setInput] = useState({
+      sender: '', 
+      content: '',
+      type: ''
+    });
 
   // 메세지 리스트 관리
   const [messages, setMessages] = useState([]); 
@@ -19,14 +23,22 @@ function App() {
   // 메시지 보내기
   const sendHandler = () => {
     if (input.content && input.content.trim() !== '') {
-      sendMessage({sender: nickname, content: input.content});
+      sendMessage({
+          sender: nickname, 
+          content: input.content,
+          type: "MSG"
+        });
+
       setInput({sender: '', content: ''});
     }
   }
 
   // 최초 웹 렌더링 후 STOMP 구독
   useEffect(() => {
-    connectStomp((msg) => setMessages(prev => [...prev, msg]));
+    connectStomp(
+      (msg) => setMessages(prev => [...prev, msg]),
+      () => sendMessage({content: "상대방이 입장했습니다.", sender: "System", type: "ENTER"})
+    );
   }, []); // 의존성 빈배열 == useEffect가 한번만 실행, 이후 실행 X
 
 
@@ -44,10 +56,11 @@ function App() {
         {messages.map((msg, idx) => (
           <div key={idx} 
             className={`chat-message ${
-              msg.sender === nickname ? 'my-message' : 'other-message'
+              msg.sender === "System" ? "system-messgae" : msg.sender === nickname ? "my-message" : "other-message"
             }`}>
 
-            <strong>{msg.sender === nickname ? '[me]' : '[other]'}: </strong>{msg.content}
+            <strong>{msg.sender === "System" ? "[System]" : msg.sender === nickname ? "[me]" : "[other]"}: 
+            </strong>{msg.content}
           </div>
         ))}
       </div>

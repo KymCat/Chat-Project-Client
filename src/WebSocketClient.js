@@ -8,7 +8,7 @@ export const stompClient = new Client({
   reconnectDelay: 5000, // 연결 끊기면 5초 후 재연결
 });
 
-export const connectStomp = (onMessageReceived) => {
+export const connectStomp = (onMessageReceived, connected) => {
     stompClient.onConnect = () => {
         console.log("STOMP CONNECTED");
 
@@ -16,6 +16,8 @@ export const connectStomp = (onMessageReceived) => {
         stompClient.subscribe('/sub/msg', (msg) => {
             onMessageReceived(JSON.parse(msg.body));
         });
+
+        if(connected) connected();
     };
     stompClient.activate();
 }
@@ -24,7 +26,11 @@ export const sendMessage = (msg) => {
     if (stompClient.connected) {
         stompClient.publish({
             destination: '/pub/msg',
-            body: JSON.stringify({content: msg.content, sender: msg.sender})
+            body: JSON.stringify(
+                {   content: msg.content, 
+                    sender: msg.sender,
+                    type:msg.type
+                })
         });
     }
 }

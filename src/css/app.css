@@ -21,6 +21,13 @@
 }
 
 /* 내가 보낸 메시지 (오른쪽) */
+.system-message {
+  background-color: #888888;
+  margin-left: auto;
+  text-align: center;
+}
+
+/* 내가 보낸 메시지 (오른쪽) */
 .my-message {
   background-color: #d1f7c4;
   margin-left: auto;
