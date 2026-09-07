@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../app/AuthProvider";
+import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
 import { connectChat, type ChatMessage } from "../features/chat/stompClient";
 import { readAccessToken } from "../shared/auth/token";
 
@@ -24,6 +25,7 @@ export function ChatPage() {
     [accessToken],
   );
   const nickname = claims?.sub ? `member-${claims.sub}` : "member";
+  const emailVerified = claims?.email_verified === true;
   const activeRoom = rooms.find((room) => room.id === activeRoomId) ?? rooms[0];
 
   useEffect(() => {
@@ -125,6 +127,8 @@ export function ChatPage() {
         </header>
 
         <div className="message-list" aria-live="polite">
+          {!emailVerified && <EmailVerificationPanel />}
+
           {messages.length === 0 && (
             <div className="empty-chat">
               <span>#</span>

@@ -18,6 +18,7 @@ interface AuthContextValue {
   login: (request: LoginRequest) => Promise<void>;
   signup: (request: SignupRequest) => Promise<void>;
   logout: () => Promise<void>;
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -64,6 +65,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
           saveAccessToken(null);
           setAccessToken(null);
         }
+      },
+      refreshSession: async () => {
+        const token = await refreshAccessToken();
+        setAccessToken(token);
       },
     }),
     [accessToken, isBootstrapping],

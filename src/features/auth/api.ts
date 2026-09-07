@@ -10,6 +10,10 @@ export interface SignupRequest extends LoginRequest {
   profileImageUrl: string | null;
 }
 
+export interface EmailVerificationConfirmRequest {
+  code: string;
+}
+
 export const authApi = {
   login: (request: LoginRequest) =>
     httpClient.post<string>("/auth/login", request, { authenticated: false }),
@@ -19,4 +23,8 @@ export const authApi = {
     httpClient.post<unknown>("/auth/logout", undefined, {
       retryOnUnauthorized: true,
     }),
+  requestEmailVerification: () =>
+    httpClient.post<unknown>("/auth/email-verifications"),
+  confirmEmailVerification: (request: EmailVerificationConfirmRequest) =>
+    httpClient.post<unknown>("/auth/email-verifications/confirm", request),
 };

@@ -525,6 +525,87 @@ a {
   scrollbar-color: var(--line) var(--black);
 }
 
+.email-verification {
+  display: grid;
+  max-width: 760px;
+  margin: 0 auto 34px;
+  padding: 24px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px 24px;
+  border: 1px solid #4a4321;
+  border-left: 5px solid var(--yellow);
+  background: #18170f;
+}
+
+.email-verification-copy h2 {
+  margin: 6px 0 8px;
+  font-size: 18px;
+}
+
+.email-verification-copy > p:last-child {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.verification-request-button,
+.verification-code-form button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--yellow);
+  color: var(--black);
+  background: var(--yellow);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.verification-request-button:hover:not(:disabled),
+.verification-code-form button:hover:not(:disabled) {
+  color: var(--yellow);
+  background: transparent;
+}
+
+.verification-request-button:disabled,
+.verification-code-form button:disabled {
+  opacity: 0.45;
+}
+
+.verification-code-form {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  border: 1px solid var(--line);
+  background: var(--black);
+}
+
+.verification-code-form:focus-within {
+  border-color: var(--yellow);
+}
+
+.verification-code-form input {
+  min-width: 0;
+  height: 50px;
+  padding: 0 16px;
+  border: 0;
+  outline: none;
+  color: var(--white);
+  background: transparent;
+  font-size: 16px;
+  letter-spacing: 0.16em;
+}
+
+.verification-message,
+.verification-error {
+  grid-column: 1 / -1;
+  margin: -4px 0 0;
+  font-size: 12px;
+}
+
+.verification-message { color: var(--yellow); }
+.verification-error { color: var(--danger); }
+
 .empty-chat {
   display: grid;
   min-height: 100%;
@@ -704,6 +785,23 @@ a {
   .chat-header { min-height: 82px; padding: 18px 20px; }
   .chat-header h1 { font-size: 21px; }
   .message-list { padding: 24px 18px; }
+  .email-verification {
+    padding: 20px;
+    grid-template-columns: 1fr;
+  }
+  .verification-request-button { width: 100%; }
+  .verification-code-form {
+    grid-column: 1;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    border: 0;
+    background: transparent;
+  }
+  .verification-code-form input {
+    border: 1px solid var(--line);
+    background: var(--black);
+  }
+  .verification-code-form button { min-height: 48px; }
   .composer-area { padding: 10px 14px 16px; }
   .message-composer { min-height: 56px; }
   .message-composer input { padding: 0 14px; }
