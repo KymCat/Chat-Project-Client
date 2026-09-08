@@ -4,14 +4,19 @@ import { webSocketUrl } from "../../shared/config/env";
 
 export interface ChatMessage {
   content: string;
-  sender: string;
+  senderId: number;
+  senderNickname: string;
   type: "CHAT" | "ENTER" | "LEAVE";
+  roomId: string;
+}
+
+interface ChatMessageRequest {
+  content: string;
   roomId: string;
 }
 
 interface ConnectOptions {
   roomId: string;
-  sender: string;
   accessToken: string;
   onMessage: (message: ChatMessage) => void;
   onStatusChange: (connected: boolean) => void;
@@ -48,10 +53,8 @@ export function connectChat(options: ConnectOptions) {
         destination: "/pub/enter",
         body: JSON.stringify({
           content: "",
-          sender: options.sender,
-          type: "ENTER",
           roomId: options.roomId,
-        } satisfies ChatMessage),
+        } satisfies ChatMessageRequest),
       });
     },
     onDisconnect: () => options.onStatusChange(false),
@@ -71,10 +74,8 @@ export function connectChat(options: ConnectOptions) {
         destination: "/pub/msg",
         body: JSON.stringify({
           content,
-          sender: options.sender,
-          type: "CHAT",
           roomId: options.roomId,
-        } satisfies ChatMessage),
+        } satisfies ChatMessageRequest),
       });
     },
     disconnect() {

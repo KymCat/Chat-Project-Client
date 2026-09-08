@@ -24,6 +24,7 @@ export function ChatPage() {
     () => (accessToken ? readAccessToken(accessToken) : null),
     [accessToken],
   );
+  const memberId = claims?.sub ? Number(claims.sub) : null;
   const nickname = claims?.sub ? `member-${claims.sub}` : "member";
   const emailVerified = claims?.email_verified === true;
   const activeRoom = rooms.find((room) => room.id === activeRoomId) ?? rooms[0];
@@ -35,7 +36,6 @@ export function ChatPage() {
     setError("");
     const connection = connectChat({
       roomId: activeRoomId,
-      sender: nickname,
       accessToken,
       onMessage: (receivedMessage) => {
         setMessages((current) => [...current, receivedMessage]);
@@ -49,7 +49,7 @@ export function ChatPage() {
       connection.disconnect();
       chatRef.current = null;
     };
-  }, [accessToken, activeRoomId, nickname]);
+  }, [accessToken, activeRoomId]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -140,18 +140,23 @@ export function ChatPage() {
           {messages.map((item, index) =>
             item.type === "CHAT" ? (
               <article
-                className={item.sender === nickname ? "message own" : "message"}
-                key={`${item.sender}-${index}`}
+                className={item.senderId === memberId ? "message own" : "message"}
+                key={`${item.senderId}-${index}`}
               >
-                <span className="message-avatar">{item.sender.slice(-2).toUpperCase()}</span>
+                <span className="message-avatar">
+                  {item.senderNickname.slice(-2).toUpperCase()}
+                </span>
                 <div>
-                  <strong>{item.sender}</strong>
+                  <strong>{item.senderNickname}</strong>
                   <p>{item.content}</p>
                 </div>
               </article>
             ) : (
-              <p className="system-message" key={`${item.type}-${item.sender}-${index}`}>
-                <span /> {item.sender}님이 입장했습니다.
+              <p
+                className="system-message"
+                key={`${item.type}-${item.senderId}-${index}`}
+              >
+                <span /> {item.content}
               </p>
             ),
           )}
