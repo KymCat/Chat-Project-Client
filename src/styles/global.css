@@ -373,9 +373,74 @@ a {
   border-bottom: 1px solid var(--line);
 }
 
+.room-create-form {
+  padding: 22px 8px 0;
+}
+
+.room-create-form > label {
+  display: block;
+  margin-bottom: 9px;
+  color: #6f6f6f;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.room-create-form > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  border: 1px solid var(--line);
+  background: var(--black);
+}
+
+.room-create-form input {
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 0;
+  outline: none;
+  color: var(--white);
+  background: transparent;
+  font-size: 11px;
+}
+
+.room-create-form > div:focus-within {
+  border-color: var(--yellow);
+}
+
+.room-create-form button {
+  border: 0;
+  color: var(--black);
+  background: var(--yellow);
+  font-weight: 900;
+}
+
+.room-create-form button:disabled {
+  opacity: 0.45;
+}
+
+.room-create-success,
+.room-create-error {
+  margin: 8px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.room-create-success {
+  color: var(--yellow);
+}
+
+.room-create-error {
+  color: var(--danger);
+}
+
 .room-list {
   flex: 1;
+  min-height: 0;
   padding-top: 30px;
+  overflow-y: auto;
+  scrollbar-color: var(--line) var(--surface);
 }
 
 .sidebar-label {
@@ -384,6 +449,28 @@ a {
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.18em;
+}
+
+.room-list-status,
+.room-list-error {
+  margin: 0 10px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.room-list-error p {
+  margin: 0 0 8px;
+  color: var(--danger);
+}
+
+.room-list-error button {
+  padding: 0;
+  border: 0;
+  color: var(--yellow);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .room-button {
@@ -727,7 +814,10 @@ a {
   .chat-sidebar { padding: 20px 10px; }
   .chat-brand { justify-content: center; padding: 0 0 22px; }
   .chat-brand > span:last-child,
+  .room-create-form,
   .sidebar-label,
+  .room-list-status,
+  .room-list-error,
   .room-button > span:last-child,
   .account-card > div,
   .account-card button { display: none; }

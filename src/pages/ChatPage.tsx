@@ -1,22 +1,35 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useAuth } from "../app/AuthProvider";
 import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
+import {
+  chatRoomApi,
+  type ChatRoomCreateResponse,
+  type ChatRoomResponse,
+} from "../features/chat/api";
 import { connectChat, type ChatMessage } from "../features/chat/stompClient";
 import { readAccessToken } from "../shared/auth/token";
 
-const rooms = [
-  { id: "1", name: "General", description: "모두의 대화방" },
-  { id: "2", name: "Backend", description: "서버 개발 이야기" },
-  { id: "3", name: "Random", description: "자유로운 대화" },
-];
-
 export function ChatPage() {
   const { accessToken, logout } = useAuth();
-  const [activeRoomId, setActiveRoomId] = useState(rooms[0].id);
+  const [rooms, setRooms] = useState<ChatRoomResponse[]>([]);
+  const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
+  const [isLoadingRooms, setIsLoadingRooms] = useState(true);
+  const [roomListError, setRoomListError] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [message, setMessage] = useState("");
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState("");
+  const [roomName, setRoomName] = useState("");
+  const [createdRoom, setCreatedRoom] = useState<ChatRoomCreateResponse | null>(null);
+  const [roomCreationError, setRoomCreationError] = useState("");
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
 
@@ -27,15 +40,53 @@ export function ChatPage() {
   const memberId = claims?.sub ? Number(claims.sub) : null;
   const nickname = claims?.sub ? `member-${claims.sub}` : "member";
   const emailVerified = claims?.email_verified === true;
-  const activeRoom = rooms.find((room) => room.id === activeRoomId) ?? rooms[0];
+  const activeRoom = rooms.find((room) => room.roomId === activeRoomId) ?? null;
+
+  const loadRooms = useCallback(async (preferredRoomId?: number) => {
+    setIsLoadingRooms(true);
+    setRoomListError("");
+
+    try {
+      const response = await chatRoomApi.getAll();
+      setRooms(response);
+      setActiveRoomId((currentRoomId) => {
+        const nextRoomId = preferredRoomId ?? currentRoomId;
+        const roomExists = response.some((room) => room.roomId === nextRoomId);
+
+        return roomExists ? nextRoomId : response[0]?.roomId ?? null;
+      });
+    } catch (loadError) {
+      setRoomListError(
+        loadError instanceof Error
+          ? loadError.message
+          : "채팅방 목록을 불러오지 못했습니다.",
+      );
+    } finally {
+      setIsLoadingRooms(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken) {
+      setRooms([]);
+      setActiveRoomId(null);
+      setIsLoadingRooms(false);
+      return;
+    }
+
+    void loadRooms();
+  }, [accessToken, loadRooms]);
+
+  useEffect(() => {
+    if (!accessToken || activeRoomId === null) {
+      setIsConnected(false);
+      return;
+    }
 
     setMessages([]);
     setError("");
     const connection = connectChat({
-      roomId: activeRoomId,
+      roomId: String(activeRoomId),
       accessToken,
       onMessage: (receivedMessage) => {
         setMessages((current) => [...current, receivedMessage]);
@@ -69,6 +120,31 @@ export function ChatPage() {
     }
   };
 
+  const handleCreateRoom = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = roomName.trim();
+    if (!name) return;
+
+    setIsCreatingRoom(true);
+    setCreatedRoom(null);
+    setRoomCreationError("");
+
+    try {
+      const response = await chatRoomApi.create({ name });
+      setCreatedRoom(response);
+      setRoomName("");
+      await loadRooms(response.roomId);
+    } catch (createError) {
+      setRoomCreationError(
+        createError instanceof Error
+          ? createError.message
+          : "채팅방 생성에 실패했습니다.",
+      );
+    } finally {
+      setIsCreatingRoom(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -85,19 +161,64 @@ export function ChatPage() {
           <span>SIGNAL CHAT</span>
         </div>
 
+        <form className="room-create-form" onSubmit={(event) => void handleCreateRoom(event)}>
+          <label htmlFor="room-name">CREATE CHANNEL</label>
+          <div>
+            <input
+              id="room-name"
+              value={roomName}
+              onChange={(event) => setRoomName(event.target.value)}
+              placeholder="채팅방 이름"
+              maxLength={30}
+              disabled={isCreatingRoom}
+            />
+            <button
+              type="submit"
+              disabled={isCreatingRoom || !roomName.trim()}
+            >
+              {isCreatingRoom ? "..." : "+"}
+            </button>
+          </div>
+          {createdRoom && (
+            <p className="room-create-success">
+              #{createdRoom.roomId} {createdRoom.name} · {createdRoom.type}
+            </p>
+          )}
+          {roomCreationError && (
+            <p className="room-create-error" role="alert">
+              {roomCreationError}
+            </p>
+          )}
+        </form>
+
         <nav className="room-list" aria-label="채팅방 목록">
           <p className="sidebar-label">CHANNELS</p>
+          {isLoadingRooms && (
+            <p className="room-list-status">채팅방을 불러오는 중...</p>
+          )}
+          {!isLoadingRooms && roomListError && (
+            <div className="room-list-error" role="alert">
+              <p>{roomListError}</p>
+              <button type="button" onClick={() => void loadRooms()}>
+                다시 시도
+              </button>
+            </div>
+          )}
+          {!isLoadingRooms && !roomListError && rooms.length === 0 && (
+            <p className="room-list-status">참여 중인 채팅방이 없습니다.</p>
+          )}
           {rooms.map((room) => (
             <button
-              key={room.id}
-              className={room.id === activeRoomId ? "room-button active" : "room-button"}
+              key={room.roomId}
+              className={room.roomId === activeRoomId ? "room-button active" : "room-button"}
               type="button"
-              onClick={() => setActiveRoomId(room.id)}
+              onClick={() => setActiveRoomId(room.roomId)}
+              aria-label={`${room.name ?? "Direct"} 채팅방`}
             >
               <span className="room-hash">#</span>
               <span>
-                <strong>{room.name}</strong>
-                <small>{room.description}</small>
+                <strong>{room.name ?? "Direct"}</strong>
+                <small>{room.role}</small>
               </span>
             </button>
           ))}
@@ -118,21 +239,38 @@ export function ChatPage() {
       <section className="chat-workspace">
         <header className="chat-header">
           <div>
-            <p className="eyebrow">CHANNEL / {activeRoom.id.padStart(2, "0")}</p>
-            <h1># {activeRoom.name}</h1>
+            <p className="eyebrow">
+              CHANNEL / {activeRoom ? String(activeRoom.roomId).padStart(2, "0") : "--"}
+            </p>
+            <h1># {activeRoom?.name ?? "채팅방 없음"}</h1>
           </div>
           <span className={isConnected ? "connection online" : "connection"}>
-            <i /> {isConnected ? "LIVE" : "CONNECTING"}
+            <i /> {isConnected ? "LIVE" : activeRoom ? "CONNECTING" : "NO CHANNEL"}
           </span>
         </header>
 
         <div className="message-list" aria-live="polite">
           {!emailVerified && <EmailVerificationPanel />}
 
-          {messages.length === 0 && (
+          {isLoadingRooms && (
             <div className="empty-chat">
               <span>#</span>
-              <h2>{activeRoom.name}의 첫 메시지를 보내세요.</h2>
+              <h2>채팅방을 불러오는 중입니다.</h2>
+            </div>
+          )}
+
+          {!isLoadingRooms && !activeRoom && (
+            <div className="empty-chat">
+              <span>#</span>
+              <h2>참여 중인 채팅방이 없습니다.</h2>
+              <p>왼쪽에서 새로운 채팅방을 만들어보세요.</p>
+            </div>
+          )}
+
+          {!isLoadingRooms && activeRoom && messages.length === 0 && (
+            <div className="empty-chat">
+              <span>#</span>
+              <h2>{activeRoom.name ?? "Direct"}의 첫 메시지를 보내세요.</h2>
               <p>이 채널의 대화는 지금부터 시작됩니다.</p>
             </div>
           )}
@@ -171,10 +309,17 @@ export function ChatPage() {
               id="message"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
-              placeholder={`#${activeRoom.name}에 메시지 보내기`}
-              disabled={!isConnected}
+              placeholder={
+                activeRoom
+                  ? `#${activeRoom.name ?? "Direct"}에 메시지 보내기`
+                  : "채팅방을 선택해주세요"
+              }
+              disabled={!activeRoom || !isConnected}
             />
-            <button type="submit" disabled={!isConnected || !message.trim()}>
+            <button
+              type="submit"
+              disabled={!activeRoom || !isConnected || !message.trim()}
+            >
               SEND <span>↗</span>
             </button>
           </form>
