@@ -7,16 +7,16 @@ export interface ChatMessage {
   senderId: number;
   senderNickname: string;
   type: "CHAT" | "ENTER" | "LEAVE";
-  roomId: string;
+  roomId: number;
 }
 
 interface ChatMessageRequest {
   content: string;
-  roomId: string;
+  roomId: number;
 }
 
 interface ConnectOptions {
-  roomId: string;
+  roomId: number;
   accessToken: string;
   onMessage: (message: ChatMessage) => void;
   onStatusChange: (connected: boolean) => void;

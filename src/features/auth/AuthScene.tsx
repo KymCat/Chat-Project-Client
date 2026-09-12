@@ -1,5 +1,5 @@
-import type { PropsWithChildren } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { type MouseEvent, type PropsWithChildren, useEffect, useRef, useState } from "react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 const greetings = [
   "Hello", "안녕하세요", "Bonjour", "Hola", "こんにちは", "Ciao",
@@ -33,6 +33,46 @@ interface AuthSceneProps extends PropsWithChildren {
 }
 
 export function AuthScene({ mode, children }: AuthSceneProps) {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const routeChangeTimerRef = useRef<number | null>(null);
+  const routeRevealTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (routeChangeTimerRef.current !== null) {
+      window.clearTimeout(routeChangeTimerRef.current);
+    }
+    if (routeRevealTimerRef.current !== null) {
+      window.clearTimeout(routeRevealTimerRef.current);
+    }
+  }, []);
+
+  const handleRouteChange = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    const link = target.closest<HTMLAnchorElement>("a[href]");
+    const targetPath = link?.getAttribute("href");
+
+    if (!targetPath?.startsWith("/")) return;
+    if (pathname === targetPath) return;
+
+    event.preventDefault();
+    if (isTransitioning) return;
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      navigate(targetPath);
+      return;
+    }
+
+    setIsTransitioning(true);
+    routeChangeTimerRef.current = window.setTimeout(() => {
+      navigate(targetPath);
+      routeRevealTimerRef.current = window.setTimeout(() => {
+        setIsTransitioning(false);
+      }, 50);
+    }, 180);
+  };
+
   return (
     <main className="auth-scene">
       <div className="auth-greetings" aria-hidden="true">
@@ -53,20 +93,28 @@ export function AuthScene({ mode, children }: AuthSceneProps) {
         })}
       </div>
 
-      <section className="auth-card">
+      <section
+        className={isTransitioning ? "auth-card auth-card-transitioning" : "auth-card"}
+        onClickCapture={handleRouteChange}
+      >
         <div className="auth-card-brand">
-          <span className="brand-mark">S</span>
+          <img className="brand-logo" src="/veritas-logo.png" alt="Veritas" />
           <div>
-            <strong>SIGNAL CHAT</strong>
             <small>CONNECT TO THE WORLD</small>
           </div>
         </div>
 
         <nav className="auth-tabs" aria-label="인증 메뉴">
-          <Link className={mode === "login" ? "active" : ""} to="/login">
+          <Link
+            className={mode === "login" ? "active" : ""}
+            to="/login"
+          >
             로그인
           </Link>
-          <Link className={mode === "signup" ? "active" : ""} to="/signup">
+          <Link
+            className={mode === "signup" ? "active" : ""}
+            to="/signup"
+          >
             회원가입
           </Link>
         </nav>

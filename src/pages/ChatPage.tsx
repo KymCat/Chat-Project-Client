@@ -6,12 +6,13 @@ import {
   useRef,
   useState,
 } from "react";
+import "../styles/chat.css";
 import { useAuth } from "../app/AuthProvider";
 import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
 import {
   chatRoomApi,
-  type ChatRoomCreateResponse,
   type ChatRoomResponse,
+  type GroupChatRoomResponse,
 } from "../features/chat/api";
 import { connectChat, type ChatMessage } from "../features/chat/stompClient";
 import { readAccessToken } from "../shared/auth/token";
@@ -22,14 +23,23 @@ export function ChatPage() {
   const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
   const [isLoadingRooms, setIsLoadingRooms] = useState(true);
   const [roomListError, setRoomListError] = useState("");
+  const [availableRooms, setAvailableRooms] = useState<GroupChatRoomResponse[]>([]);
+  const [isLoadingAvailableRooms, setIsLoadingAvailableRooms] = useState(true);
+  const [availableRoomError, setAvailableRoomError] = useState("");
+  const [joiningRoomId, setJoiningRoomId] = useState<number | null>(null);
+  const [joinRoomError, setJoinRoomError] = useState("");
+  const [joinTargetRoom, setJoinTargetRoom] = useState<GroupChatRoomResponse | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [message, setMessage] = useState("");
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState("");
   const [roomName, setRoomName] = useState("");
-  const [createdRoom, setCreatedRoom] = useState<ChatRoomCreateResponse | null>(null);
   const [roomCreationError, setRoomCreationError] = useState("");
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(true);
+  const [roomSearchQuery, setRoomSearchQuery] = useState("");
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
 
@@ -41,6 +51,22 @@ export function ChatPage() {
   const nickname = claims?.sub ? `member-${claims.sub}` : "member";
   const emailVerified = claims?.email_verified === true;
   const activeRoom = rooms.find((room) => room.roomId === activeRoomId) ?? null;
+  const filteredRooms = useMemo(() => {
+    const query = roomSearchQuery.trim().toLocaleLowerCase();
+    if (!query) return rooms;
+
+    return rooms.filter((room) =>
+      (room.name ?? "Direct").toLocaleLowerCase().includes(query),
+    );
+  }, [roomSearchQuery, rooms]);
+  const filteredAvailableRooms = useMemo(() => {
+    const query = roomSearchQuery.trim().toLocaleLowerCase();
+    if (!query) return availableRooms;
+
+    return availableRooms.filter((room) =>
+      room.name.toLocaleLowerCase().includes(query),
+    );
+  }, [availableRooms, roomSearchQuery]);
 
   const loadRooms = useCallback(async (preferredRoomId?: number) => {
     setIsLoadingRooms(true);
@@ -66,16 +92,36 @@ export function ChatPage() {
     }
   }, []);
 
+  const loadAvailableRooms = useCallback(async () => {
+    setIsLoadingAvailableRooms(true);
+    setAvailableRoomError("");
+
+    try {
+      setAvailableRooms(await chatRoomApi.getAvailable());
+    } catch (loadError) {
+      setAvailableRoomError(
+        loadError instanceof Error
+          ? loadError.message
+          : "참여 가능한 채팅방을 불러오지 못했습니다.",
+      );
+    } finally {
+      setIsLoadingAvailableRooms(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!accessToken) {
       setRooms([]);
       setActiveRoomId(null);
       setIsLoadingRooms(false);
+      setAvailableRooms([]);
+      setIsLoadingAvailableRooms(false);
       return;
     }
 
     void loadRooms();
-  }, [accessToken, loadRooms]);
+    void loadAvailableRooms();
+  }, [accessToken, loadAvailableRooms, loadRooms]);
 
   useEffect(() => {
     if (!accessToken || activeRoomId === null) {
@@ -86,7 +132,7 @@ export function ChatPage() {
     setMessages([]);
     setError("");
     const connection = connectChat({
-      roomId: String(activeRoomId),
+      roomId: activeRoomId,
       accessToken,
       onMessage: (receivedMessage) => {
         setMessages((current) => [...current, receivedMessage]);
@@ -126,14 +172,17 @@ export function ChatPage() {
     if (!name) return;
 
     setIsCreatingRoom(true);
-    setCreatedRoom(null);
     setRoomCreationError("");
 
     try {
       const response = await chatRoomApi.create({ name });
-      setCreatedRoom(response);
       setRoomName("");
-      await loadRooms(response.roomId);
+      await Promise.all([
+        loadRooms(response.roomId),
+        loadAvailableRooms(),
+      ]);
+      handleOpenRoom(response.roomId);
+      setIsCreateRoomModalOpen(false);
     } catch (createError) {
       setRoomCreationError(
         createError instanceof Error
@@ -145,6 +194,43 @@ export function ChatPage() {
     }
   };
 
+  const handleJoinRoom = async (roomId: number) => {
+    if (joiningRoomId !== null) return;
+
+    setJoiningRoomId(roomId);
+    setJoinRoomError("");
+
+    try {
+      await chatRoomApi.join(roomId);
+      await Promise.all([
+        loadRooms(roomId),
+        loadAvailableRooms(),
+      ]);
+      handleOpenRoom(roomId);
+      setJoinTargetRoom(null);
+    } catch (joinError) {
+      setJoinRoomError(
+        joinError instanceof Error
+          ? joinError.message
+          : "채팅방 참여에 실패했습니다.",
+      );
+    } finally {
+      setJoiningRoomId(null);
+    }
+  };
+
+  const handleOpenJoinRoomModal = (room: GroupChatRoomResponse) => {
+    setJoinRoomError("");
+    setJoinTargetRoom(room);
+  };
+
+  const handleCloseJoinRoomModal = () => {
+    if (joiningRoomId !== null) return;
+
+    setJoinRoomError("");
+    setJoinTargetRoom(null);
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -153,46 +239,126 @@ export function ChatPage() {
     }
   };
 
+  const handleProfileLogout = async () => {
+    setIsProfileModalOpen(false);
+    await handleLogout();
+  };
+
+  const handleOpenCreateRoomModal = () => {
+    setRoomCreationError("");
+    setIsCreateRoomModalOpen(true);
+  };
+
+  const handleCloseCreateRoomModal = () => {
+    if (isCreatingRoom) return;
+
+    setRoomName("");
+    setRoomCreationError("");
+    setIsCreateRoomModalOpen(false);
+  };
+
+  const handleOpenRoom = (roomId: number) => {
+    setActiveRoomId(roomId);
+    setIsChatOpen(true);
+  };
+
+  const handleOpenEmptyChat = () => {
+    setActiveRoomId(null);
+    setIsChatOpen(true);
+  };
+
+  const handleCloseRoom = () => {
+    setActiveRoomId(null);
+    setIsChatOpen(false);
+    setMessages([]);
+    setMessage("");
+    setError("");
+  };
+
   return (
-    <main className="chat-shell">
-      <aside className="chat-sidebar">
-        <div className="brand-lockup chat-brand">
-          <span className="brand-mark">S</span>
-          <span>SIGNAL CHAT</span>
+    <main
+      className={[
+        "chat-shell",
+        isChatOpen ? "" : "room-browser",
+      ].filter(Boolean).join(" ")}
+    >
+      <aside className="navigation-rail">
+        <div className="brand-lockup navigation-brand">
+          <img className="brand-logo" src="/veritas-logo.png" alt="Veritas" />
         </div>
 
-        <form className="room-create-form" onSubmit={(event) => void handleCreateRoom(event)}>
-          <label htmlFor="room-name">CREATE CHANNEL</label>
-          <div>
-            <input
-              id="room-name"
-              value={roomName}
-              onChange={(event) => setRoomName(event.target.value)}
-              placeholder="채팅방 이름"
-              maxLength={30}
-              disabled={isCreatingRoom}
-            />
-            <button
-              type="submit"
-              disabled={isCreatingRoom || !roomName.trim()}
-            >
-              {isCreatingRoom ? "..." : "+"}
-            </button>
+        <nav className="navigation-menu" aria-label="메인 메뉴">
+          <div className="navigation-item active">
+            <span className="navigation-glyph" aria-hidden="true">#</span>
+            <strong>채팅방</strong>
+            <em>{rooms.length}</em>
           </div>
-          {createdRoom && (
-            <p className="room-create-success">
-              #{createdRoom.roomId} {createdRoom.name} · {createdRoom.type}
-            </p>
-          )}
-          {roomCreationError && (
-            <p className="room-create-error" role="alert">
-              {roomCreationError}
-            </p>
-          )}
-        </form>
+          <div className="navigation-item muted">
+            <span className="navigation-glyph" aria-hidden="true">+</span>
+            <strong>친구</strong>
+          </div>
+          <div className="navigation-item muted">
+            <span className="navigation-glyph" aria-hidden="true">•</span>
+            <strong>설정</strong>
+          </div>
+        </nav>
+
+        <div className="account-card navigation-account">
+          <button
+            className="profile-trigger"
+            type="button"
+            onClick={() => setIsProfileModalOpen(true)}
+            aria-haspopup="dialog"
+            aria-label="내 프로필 열기"
+          >
+            <span className="avatar">{nickname.slice(-2).toUpperCase()}</span>
+          </button>
+        </div>
+      </aside>
+
+      <aside className="chat-sidebar">
+        {!isChatOpen && (
+          <button
+            className="open-empty-chat-button"
+            type="button"
+            onClick={handleOpenEmptyChat}
+            aria-label="빈 채팅 화면 열기"
+          >
+            ›
+          </button>
+        )}
+
+        <div className="room-sidebar-header">
+          <div>
+            <p className="eyebrow">MESSENGER</p>
+            <h1>채팅</h1>
+          </div>
+          <button
+            className="open-create-room-button"
+            type="button"
+            onClick={handleOpenCreateRoomModal}
+            aria-label="채팅방 생성 열기"
+          >
+            <span className="plus-icon" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="room-search">
+          <label htmlFor="room-search">채팅방 검색</label>
+          <div>
+            <span aria-hidden="true">⌕</span>
+            <input
+              id="room-search"
+              type="search"
+              value={roomSearchQuery}
+              onChange={(event) => setRoomSearchQuery(event.target.value)}
+              placeholder="채팅방 이름 검색"
+            />
+          </div>
+        </div>
 
         <nav className="room-list" aria-label="채팅방 목록">
-          <p className="sidebar-label">CHANNELS</p>
+          <p className="sidebar-label">참여 중인 채팅방</p>
           {isLoadingRooms && (
             <p className="room-list-status">채팅방을 불러오는 중...</p>
           )}
@@ -207,12 +373,18 @@ export function ChatPage() {
           {!isLoadingRooms && !roomListError && rooms.length === 0 && (
             <p className="room-list-status">참여 중인 채팅방이 없습니다.</p>
           )}
-          {rooms.map((room) => (
+          {!isLoadingRooms
+            && !roomListError
+            && rooms.length > 0
+            && filteredRooms.length === 0 && (
+              <p className="room-list-status">검색 결과가 없습니다.</p>
+          )}
+          {filteredRooms.map((room) => (
             <button
               key={room.roomId}
               className={room.roomId === activeRoomId ? "room-button active" : "room-button"}
               type="button"
-              onClick={() => setActiveRoomId(room.roomId)}
+              onClick={() => handleOpenRoom(room.roomId)}
               aria-label={`${room.name ?? "Direct"} 채팅방`}
             >
               <span className="room-hash">#</span>
@@ -222,21 +394,56 @@ export function ChatPage() {
               </span>
             </button>
           ))}
+
+          <p className="sidebar-label available-room-label">참여 가능한 채팅방</p>
+          {isLoadingAvailableRooms && (
+            <p className="room-list-status">참여 가능한 방을 불러오는 중...</p>
+          )}
+          {!isLoadingAvailableRooms && availableRoomError && (
+            <div className="room-list-error" role="alert">
+              <p>{availableRoomError}</p>
+              <button type="button" onClick={() => void loadAvailableRooms()}>
+                다시 시도
+              </button>
+            </div>
+          )}
+          {!isLoadingAvailableRooms
+            && !availableRoomError
+            && availableRooms.length === 0 && (
+              <p className="room-list-status">참여 가능한 채팅방이 없습니다.</p>
+          )}
+          {!isLoadingAvailableRooms
+            && !availableRoomError
+            && availableRooms.length > 0
+            && filteredAvailableRooms.length === 0 && (
+              <p className="room-list-status">검색 결과가 없습니다.</p>
+          )}
+          {filteredAvailableRooms.map((room) => (
+            <button
+              className="room-button available-room"
+              key={room.roomId}
+              type="button"
+              onClick={() => handleOpenJoinRoomModal(room)}
+              disabled={joiningRoomId !== null}
+              aria-haspopup="dialog"
+              aria-label={`${room.name} 참여 가능 채팅방`}
+            >
+              <span className="room-hash">#</span>
+              <span>
+                <strong>{room.name}</strong>
+                <small>참여하기</small>
+              </span>
+            </button>
+          ))}
         </nav>
 
-        <div className="account-card">
-          <span className="avatar">{nickname.slice(-2).toUpperCase()}</span>
-          <div>
-            <strong>{nickname}</strong>
-            <small>{isConnected ? "온라인" : "연결 중"}</small>
-          </div>
-          <button type="button" onClick={() => void handleLogout()} aria-label="로그아웃">
-            EXIT
-          </button>
-        </div>
       </aside>
 
-      <section className="chat-workspace">
+      <section
+        className="chat-workspace"
+        aria-hidden={!isChatOpen}
+        inert={!isChatOpen}
+      >
         <header className="chat-header">
           <div>
             <p className="eyebrow">
@@ -244,14 +451,26 @@ export function ChatPage() {
             </p>
             <h1># {activeRoom?.name ?? "채팅방 없음"}</h1>
           </div>
-          <span className={isConnected ? "connection online" : "connection"}>
-            <i /> {isConnected ? "LIVE" : activeRoom ? "CONNECTING" : "NO CHANNEL"}
-          </span>
+          <div className="chat-header-actions">
+            <span className={isConnected ? "connection online" : "connection"}>
+              <i /> {isConnected ? "LIVE" : activeRoom ? "CONNECTING" : "NO CHANNEL"}
+            </span>
+            <button
+              className="close-chat-button"
+              type="button"
+              onClick={handleCloseRoom}
+              aria-label="채팅방 닫기"
+            >
+              ×
+            </button>
+          </div>
         </header>
 
-        <div className="message-list" aria-live="polite">
+        <div className="email-verification-area">
           {!emailVerified && <EmailVerificationPanel />}
+        </div>
 
+        <div className="message-list" aria-live="polite">
           {isLoadingRooms && (
             <div className="empty-chat">
               <span>#</span>
@@ -319,12 +538,190 @@ export function ChatPage() {
             <button
               type="submit"
               disabled={!activeRoom || !isConnected || !message.trim()}
+              aria-label="메시지 보내기"
             >
-              SEND <span>↗</span>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M21.2 3.4 10.8 20.1l-2.1-7.2-6.9-2.8L21.2 3.4Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="m8.7 12.9 5.2-3.4"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
             </button>
           </form>
         </footer>
       </section>
+
+      {isCreateRoomModalOpen && (
+        <div className="create-room-modal" role="presentation">
+          <section
+            className="create-room-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-room-title"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">NEW CHANNEL</p>
+                <h2 id="create-room-title">새 채팅방 만들기</h2>
+              </div>
+              <button
+                className="close-create-room-button"
+                type="button"
+                onClick={handleCloseCreateRoomModal}
+                disabled={isCreatingRoom}
+                aria-label="채팅방 생성 닫기"
+              >
+                ×
+              </button>
+            </header>
+
+            <form className="room-create-form" onSubmit={(event) => void handleCreateRoom(event)}>
+              <label htmlFor="room-name">채팅방 이름</label>
+              <div>
+                <input
+                  id="room-name"
+                  value={roomName}
+                  onChange={(event) => setRoomName(event.target.value)}
+                  placeholder="1~30자로 입력해주세요"
+                  maxLength={30}
+                  autoFocus
+                  disabled={isCreatingRoom}
+                />
+              </div>
+              {roomCreationError && (
+                <p className="room-create-error" role="alert">
+                  {roomCreationError}
+                </p>
+              )}
+              <footer>
+                <button
+                  className="cancel-create-room-button"
+                  type="button"
+                  onClick={handleCloseCreateRoomModal}
+                  disabled={isCreatingRoom}
+                >
+                  취소
+                </button>
+                <button
+                  className="submit-create-room-button"
+                  type="submit"
+                  disabled={isCreatingRoom || !roomName.trim()}
+                >
+                  {isCreatingRoom ? "생성 중..." : "채팅방 생성"}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {isProfileModalOpen && (
+        <div className="profile-modal" role="presentation">
+          <section
+            className="profile-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-dialog-title"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">MY PROFILE</p>
+                <h2 id="profile-dialog-title">프로필</h2>
+              </div>
+              <button
+                className="close-profile-button"
+                type="button"
+                onClick={() => setIsProfileModalOpen(false)}
+                aria-label="프로필 닫기"
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="profile-summary">
+              <span className="avatar">{nickname.slice(-2).toUpperCase()}</span>
+              <strong>{nickname}</strong>
+              <small>{isConnected ? "온라인" : "연결 중"}</small>
+            </div>
+
+            <dl className="profile-details">
+              <div>
+                <dt>회원 ID</dt>
+                <dd>{memberId ?? "-"}</dd>
+              </div>
+              <div>
+                <dt>이메일 인증</dt>
+                <dd>{emailVerified ? "인증 완료" : "인증 필요"}</dd>
+              </div>
+            </dl>
+
+            <button
+              className="profile-logout-button"
+              type="button"
+              onClick={() => void handleProfileLogout()}
+            >
+              로그아웃
+            </button>
+          </section>
+        </div>
+      )}
+
+      {joinTargetRoom && (
+        <div className="join-room-modal" role="presentation">
+          <section
+            className="join-room-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="join-room-dialog-title"
+          >
+            <span className="join-room-symbol" aria-hidden="true">#</span>
+            <p className="eyebrow">JOIN CHANNEL</p>
+            <h2 id="join-room-dialog-title">{joinTargetRoom.name}</h2>
+            <p className="join-room-description">
+              이 채팅방에 참여하시겠습니까?
+            </p>
+
+            {joinRoomError && (
+              <p className="join-room-error" role="alert">
+                {joinRoomError}
+              </p>
+            )}
+
+            <footer>
+              <button
+                className="cancel-join-room-button"
+                type="button"
+                onClick={handleCloseJoinRoomModal}
+                disabled={joiningRoomId !== null}
+              >
+                취소
+              </button>
+              <button
+                className="confirm-join-room-button"
+                type="button"
+                onClick={() => void handleJoinRoom(joinTargetRoom.roomId)}
+                disabled={joiningRoomId !== null}
+              >
+                {joiningRoomId !== null ? "참여 중..." : "참여하기"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

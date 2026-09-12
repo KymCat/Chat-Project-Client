@@ -4,7 +4,7 @@ import { useAuth } from "./AuthProvider";
 function LoadingScreen() {
   return (
     <main className="loading-screen" aria-live="polite">
-      <span className="brand-mark">S</span>
+      <img className="brand-logo" src="/veritas-logo.png" alt="Veritas" />
       <p>세션을 확인하고 있습니다.</p>
     </main>
   );

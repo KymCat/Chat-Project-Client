@@ -18,8 +18,18 @@ export interface ChatRoomResponse {
   lastMessageAt: string | null;
 }
 
+export interface GroupChatRoomResponse {
+  roomId: number;
+  name: string;
+  lastMessageAt: string | null;
+}
+
 export const chatRoomApi = {
   create: (request: ChatRoomCreateRequest) =>
     httpClient.post<ChatRoomCreateResponse>("/chat-rooms", request),
   getAll: () => httpClient.get<ChatRoomResponse[]>("/chat-rooms"),
+  getAvailable: () =>
+    httpClient.get<GroupChatRoomResponse[]>("/chat-rooms/available"),
+  join: (roomId: number) =>
+    httpClient.post<GroupChatRoomResponse>(`/chat-rooms/${roomId}/members`),
 };

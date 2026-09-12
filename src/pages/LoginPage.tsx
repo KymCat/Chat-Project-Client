@@ -18,6 +18,12 @@ export function LoginPage() {
 
     try {
       await login({ email, password });
+
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        document.querySelector(".auth-card")?.classList.add("auth-card-transitioning");
+        await new Promise((resolve) => window.setTimeout(resolve, 180));
+      }
+
       navigate("/chat", { replace: true });
     } catch (requestError) {
       setError(
