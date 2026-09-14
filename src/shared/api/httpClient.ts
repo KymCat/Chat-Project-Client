@@ -119,4 +119,6 @@ export const httpClient = {
       method: "POST",
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
+  delete: <T>(path: string, options?: RequestOptions) =>
+    send<T>(path, { ...options, method: "DELETE" }),
 };

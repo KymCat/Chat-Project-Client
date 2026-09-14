@@ -1,33 +1,6 @@
 import { type MouseEvent, type PropsWithChildren, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-const greetings = [
-  "Hello", "안녕하세요", "Bonjour", "Hola", "こんにちは", "Ciao",
-  "Olá", "你好", "Guten Tag", "नमस्ते", "Merhaba", "مرحبا",
-  "Hej", "Xin chào", "สวัสดี", "Привет", "Shalom", "Selamat",
-  "Kia ora", "Kamusta", "Γεια σου", "Ahoj", "Szia", "Halo",
-  "Sawubona", "Tere", "Sveiki", "Dzień dobry", "Salut", "Goedendag",
-  "Jambo", "Halló", "Bună ziua", "Moi", "Добрий день", "გამარჯობა",
-  "Mingalaba", "Salam", "Përshëndetje", "Kaixo", "Բարեւ", "Habari",
-];
-
-const rowOrders = [
-  { offset: 0, step: 1 },
-  { offset: 3, step: 5 },
-  { offset: 7, step: 11 },
-  { offset: 13, step: 13 },
-  { offset: 19, step: 17 },
-  { offset: 23, step: 19 },
-  { offset: 29, step: 25 },
-];
-
-const greetingRows = rowOrders.map(({ offset, step }) =>
-  Array.from(
-    { length: greetings.length },
-    (_, index) => greetings[(offset + index * step) % greetings.length],
-  ),
-);
-
 interface AuthSceneProps extends PropsWithChildren {
   mode: "login" | "signup";
 }
@@ -74,23 +47,46 @@ export function AuthScene({ mode, children }: AuthSceneProps) {
   };
 
   return (
-    <main className="auth-scene">
-      <div className="auth-greetings" aria-hidden="true">
-        {greetingRows.map((row, rowIndex) => {
-          return (
-            <div className="greeting-row" key={rowIndex}>
-              <div className="greeting-track">
-                {[0, 1].map((copyIndex) => (
-                  <div className="greeting-group" key={copyIndex}>
-                    {row.map((greeting, index) => (
-                      <span key={`${greeting}-${index}`}>{greeting}</span>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
+    <main className={isTransitioning ? "auth-scene auth-scene-transitioning" : "auth-scene"}>
+      <div className="auth-background" aria-hidden="true">
+        <div className="auth-grid" />
+        <svg
+          className="auth-network"
+          viewBox="0 0 1200 760"
+          preserveAspectRatio="xMidYMid slice"
+        >
+          <g className="auth-network-lines">
+            <path d="M58 170 238 92 402 206 594 118 778 226 1012 126 1150 230" />
+            <path d="M84 568 274 476 452 594 650 454 834 574 1108 470" />
+            <path d="M238 92 274 476M402 206 452 594M594 118 650 454M778 226 834 574M1012 126 1108 470" />
+            <path d="M58 170 84 568M1150 230 1108 470" />
+          </g>
+          <g className="auth-network-nodes">
+            <circle cx="58" cy="170" r="4" />
+            <circle cx="238" cy="92" r="5" />
+            <circle cx="402" cy="206" r="4" />
+            <circle cx="594" cy="118" r="6" />
+            <circle cx="778" cy="226" r="4" />
+            <circle cx="1012" cy="126" r="5" />
+            <circle cx="1150" cy="230" r="4" />
+            <circle cx="84" cy="568" r="4" />
+            <circle cx="274" cy="476" r="5" />
+            <circle cx="452" cy="594" r="4" />
+            <circle cx="650" cy="454" r="6" />
+            <circle cx="834" cy="574" r="4" />
+            <circle cx="1108" cy="470" r="5" />
+          </g>
+        </svg>
+        <div className="auth-scan-line" />
+        <span className="auth-telemetry auth-telemetry-primary">
+          VERITAS // TRUTH TRACE
+        </span>
+        <span className="auth-telemetry auth-telemetry-secondary">
+          NODE 07 · SECURE CHANNEL
+        </span>
+        <span className="auth-telemetry auth-telemetry-tertiary">
+          PACKET INTEGRITY 100%
+        </span>
       </div>
 
       <section
@@ -98,7 +94,7 @@ export function AuthScene({ mode, children }: AuthSceneProps) {
         onClickCapture={handleRouteChange}
       >
         <div className="auth-card-brand">
-          <img className="brand-logo" src="/veritas-logo.png" alt="Veritas" />
+          <img className="brand-logo auth-logo" src="/veritas-logo.png" alt="Veritas" />
           <div>
             <small>CONNECT TO THE WORLD</small>
           </div>

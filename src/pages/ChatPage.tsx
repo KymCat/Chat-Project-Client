@@ -1,7 +1,9 @@
 import {
+  Fragment,
   type FormEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -11,11 +13,71 @@ import { useAuth } from "../app/AuthProvider";
 import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
 import {
   chatRoomApi,
+  type ChatMessage,
   type ChatRoomResponse,
   type GroupChatRoomResponse,
 } from "../features/chat/api";
-import { connectChat, type ChatMessage } from "../features/chat/stompClient";
+import { connectChat } from "../features/chat/stompClient";
 import { readAccessToken } from "../shared/auth/token";
+
+interface MessagePageState {
+  initialized: boolean;
+  isLoading: boolean;
+  hasNext: boolean;
+  nextCursor: number | null;
+  error: string;
+}
+
+interface PendingHistoryScroll {
+  roomId: number;
+  scrollHeight: number;
+  scrollTop: number;
+}
+
+const messageTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+const messageDateFormatter = new Intl.DateTimeFormat("ko-KR", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  weekday: "long",
+});
+
+function formatMessageTime(createdAt: string) {
+  return messageTimeFormatter.format(new Date(createdAt));
+}
+
+function formatMessageDate(createdAt: string) {
+  return messageDateFormatter.format(new Date(createdAt));
+}
+
+function isSameMessageDate(left: string, right: string) {
+  const leftDate = new Date(left);
+  const rightDate = new Date(right);
+
+  return leftDate.getFullYear() === rightDate.getFullYear()
+    && leftDate.getMonth() === rightDate.getMonth()
+    && leftDate.getDate() === rightDate.getDate();
+}
+
+function mergeMessages(
+  currentMessages: ChatMessage[],
+  receivedMessages: ChatMessage[],
+) {
+  const messagesById = new Map<number, ChatMessage>();
+  [...currentMessages, ...receivedMessages].forEach((item) => {
+    messagesById.set(item.messageId, item);
+  });
+
+  return [...messagesById.values()].sort((left, right) => {
+    const timeDifference = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+    return timeDifference || left.messageId - right.messageId;
+  });
+}
 
 export function ChatPage() {
   const { accessToken, logout } = useAuth();
@@ -29,7 +91,11 @@ export function ChatPage() {
   const [joiningRoomId, setJoiningRoomId] = useState<number | null>(null);
   const [joinRoomError, setJoinRoomError] = useState("");
   const [joinTargetRoom, setJoinTargetRoom] = useState<GroupChatRoomResponse | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [leaveTargetRoom, setLeaveTargetRoom] = useState<ChatRoomResponse | null>(null);
+  const [isLeavingRoom, setIsLeavingRoom] = useState(false);
+  const [leaveRoomError, setLeaveRoomError] = useState("");
+  const [messagesByRoom, setMessagesByRoom] = useState<Record<number, ChatMessage[]>>({});
+  const [messagePagesByRoom, setMessagePagesByRoom] = useState<Record<number, MessagePageState>>({});
   const [message, setMessage] = useState("");
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState("");
@@ -41,6 +107,10 @@ export function ChatPage() {
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
+  const loadingMessageRoomIdsRef = useRef(new Set<number>());
+  const pendingHistoryScrollRef = useRef<PendingHistoryScroll | null>(null);
+  const shouldScrollToBottomRef = useRef(true);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
 
   const claims = useMemo(
@@ -51,6 +121,13 @@ export function ChatPage() {
   const nickname = claims?.sub ? `member-${claims.sub}` : "member";
   const emailVerified = claims?.email_verified === true;
   const activeRoom = rooms.find((room) => room.roomId === activeRoomId) ?? null;
+  const messages = useMemo(
+    () => activeRoomId === null ? [] : messagesByRoom[activeRoomId] ?? [],
+    [activeRoomId, messagesByRoom],
+  );
+  const activeMessagePage = activeRoomId === null
+    ? null
+    : messagePagesByRoom[activeRoomId] ?? null;
   const filteredRooms = useMemo(() => {
     const query = roomSearchQuery.trim().toLocaleLowerCase();
     if (!query) return rooms;
@@ -109,6 +186,61 @@ export function ChatPage() {
     }
   }, []);
 
+  const loadMessages = useCallback(async (
+    roomId: number,
+    beforeMessageId: number | null = null,
+  ) => {
+    if (loadingMessageRoomIdsRef.current.has(roomId)) return false;
+
+    loadingMessageRoomIdsRef.current.add(roomId);
+    setMessagePagesByRoom((current) => ({
+      ...current,
+      [roomId]: {
+        initialized: current[roomId]?.initialized ?? false,
+        isLoading: true,
+        hasNext: current[roomId]?.hasNext ?? false,
+        nextCursor: current[roomId]?.nextCursor ?? null,
+        error: "",
+      },
+    }));
+
+    try {
+      const response = await chatRoomApi.getMessages(roomId, beforeMessageId);
+      shouldScrollToBottomRef.current = beforeMessageId === null;
+      setMessagesByRoom((current) => ({
+        ...current,
+        [roomId]: mergeMessages(current[roomId] ?? [], response.content),
+      }));
+      setMessagePagesByRoom((current) => ({
+        ...current,
+        [roomId]: {
+          initialized: true,
+          isLoading: false,
+          hasNext: response.hasNext,
+          nextCursor: response.nextCursor,
+          error: "",
+        },
+      }));
+      return true;
+    } catch (loadError) {
+      setMessagePagesByRoom((current) => ({
+        ...current,
+        [roomId]: {
+          initialized: current[roomId]?.initialized ?? false,
+          isLoading: false,
+          hasNext: current[roomId]?.hasNext ?? false,
+          nextCursor: current[roomId]?.nextCursor ?? null,
+          error: loadError instanceof Error
+            ? loadError.message
+            : "메시지를 불러오지 못했습니다.",
+        },
+      }));
+      return false;
+    } finally {
+      loadingMessageRoomIdsRef.current.delete(roomId);
+    }
+  }, []);
+
   useEffect(() => {
     if (!accessToken) {
       setRooms([]);
@@ -116,6 +248,9 @@ export function ChatPage() {
       setIsLoadingRooms(false);
       setAvailableRooms([]);
       setIsLoadingAvailableRooms(false);
+      setMessagesByRoom({});
+      setMessagePagesByRoom({});
+      loadingMessageRoomIdsRef.current.clear();
       return;
     }
 
@@ -124,18 +259,40 @@ export function ChatPage() {
   }, [accessToken, loadAvailableRooms, loadRooms]);
 
   useEffect(() => {
-    if (!accessToken || activeRoomId === null) {
+    if (
+      activeRoomId === null
+      || activeMessagePage?.initialized
+      || activeMessagePage?.isLoading
+    ) {
+      return;
+    }
+
+    void loadMessages(activeRoomId);
+  }, [activeMessagePage, activeRoomId, loadMessages]);
+
+  useEffect(() => {
+    if (!accessToken) {
       setIsConnected(false);
       return;
     }
 
-    setMessages([]);
     setError("");
     const connection = connectChat({
-      roomId: activeRoomId,
       accessToken,
       onMessage: (receivedMessage) => {
-        setMessages((current) => [...current, receivedMessage]);
+        shouldScrollToBottomRef.current = true;
+        setMessagesByRoom((current) => {
+          const roomMessages = current[receivedMessage.roomId] ?? [];
+          return {
+            ...current,
+            [receivedMessage.roomId]: mergeMessages(roomMessages, [receivedMessage]),
+          };
+        });
+        setRooms((current) => current.map((room) =>
+          room.roomId === receivedMessage.roomId
+            ? { ...room, lastMessageAt: receivedMessage.createdAt }
+            : room,
+        ));
       },
       onStatusChange: setIsConnected,
       onError: setError,
@@ -146,11 +303,57 @@ export function ChatPage() {
       connection.disconnect();
       chatRef.current = null;
     };
-  }, [accessToken, activeRoomId]);
+  }, [accessToken]);
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    chatRef.current?.syncSubscriptions(
+      rooms.map((room) => room.roomId),
+    );
+  }, [rooms]);
+
+  useLayoutEffect(() => {
+    const pendingScroll = pendingHistoryScrollRef.current;
+    const messageList = messageListRef.current;
+
+    if (pendingScroll && pendingScroll.roomId === activeRoomId && messageList) {
+      messageList.scrollTop = pendingScroll.scrollTop
+        + messageList.scrollHeight
+        - pendingScroll.scrollHeight;
+      pendingHistoryScrollRef.current = null;
+      shouldScrollToBottomRef.current = true;
+      return;
+    }
+
+    if (shouldScrollToBottomRef.current) {
+      messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+    shouldScrollToBottomRef.current = true;
   }, [messages]);
+
+  const handleLoadOlderMessages = async () => {
+    if (
+      activeRoomId === null
+      || !activeMessagePage?.hasNext
+      || activeMessagePage.nextCursor === null
+      || activeMessagePage.isLoading
+    ) {
+      return;
+    }
+
+    const messageList = messageListRef.current;
+    if (messageList) {
+      pendingHistoryScrollRef.current = {
+        roomId: activeRoomId,
+        scrollHeight: messageList.scrollHeight,
+        scrollTop: messageList.scrollTop,
+      };
+    }
+
+    const loaded = await loadMessages(activeRoomId, activeMessagePage.nextCursor);
+    if (!loaded) {
+      pendingHistoryScrollRef.current = null;
+    }
+  };
 
   const handleSend = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -158,7 +361,9 @@ export function ChatPage() {
     if (!content) return;
 
     try {
-      chatRef.current?.send(content);
+      if (activeRoomId === null) return;
+
+      chatRef.current?.send(activeRoomId, content);
       setMessage("");
       setError("");
     } catch (sendError) {
@@ -231,6 +436,58 @@ export function ChatPage() {
     setJoinTargetRoom(null);
   };
 
+  const handleOpenLeaveRoomModal = () => {
+    if (!activeRoom || activeRoom.role === "OWNER") return;
+
+    setLeaveRoomError("");
+    setLeaveTargetRoom(activeRoom);
+  };
+
+  const handleCloseLeaveRoomModal = () => {
+    if (isLeavingRoom) return;
+
+    setLeaveRoomError("");
+    setLeaveTargetRoom(null);
+  };
+
+  const handleLeaveRoom = async () => {
+    if (!leaveTargetRoom || isLeavingRoom) return;
+
+    const roomId = leaveTargetRoom.roomId;
+    setIsLeavingRoom(true);
+    setLeaveRoomError("");
+
+    try {
+      await chatRoomApi.leave(roomId);
+
+      const remainingRooms = rooms.filter((room) => room.roomId !== roomId);
+      setRooms(remainingRooms);
+      setActiveRoomId(remainingRooms[0]?.roomId ?? null);
+      setMessagesByRoom((current) => {
+        const next = { ...current };
+        delete next[roomId];
+        return next;
+      });
+      setMessagePagesByRoom((current) => {
+        const next = { ...current };
+        delete next[roomId];
+        return next;
+      });
+      setMessage("");
+      setError("");
+      setLeaveTargetRoom(null);
+      await loadAvailableRooms();
+    } catch (leaveError) {
+      setLeaveRoomError(
+        leaveError instanceof Error
+          ? leaveError.message
+          : "채팅방을 나가지 못했습니다.",
+      );
+    } finally {
+      setIsLeavingRoom(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -270,7 +527,6 @@ export function ChatPage() {
   const handleCloseRoom = () => {
     setActiveRoomId(null);
     setIsChatOpen(false);
-    setMessages([]);
     setMessage("");
     setError("");
   };
@@ -456,6 +712,17 @@ export function ChatPage() {
               <i /> {isConnected ? "LIVE" : activeRoom ? "CONNECTING" : "NO CHANNEL"}
             </span>
             <button
+              className="leave-chat-button"
+              type="button"
+              onClick={handleOpenLeaveRoomModal}
+              disabled={!activeRoom || activeRoom.role === "OWNER"}
+              title={activeRoom?.role === "OWNER"
+                ? "방장은 소유권을 위임한 후 나갈 수 있습니다."
+                : "채팅방 나가기"}
+            >
+              나가기
+            </button>
+            <button
               className="close-chat-button"
               type="button"
               onClick={handleCloseRoom}
@@ -470,7 +737,7 @@ export function ChatPage() {
           {!emailVerified && <EmailVerificationPanel />}
         </div>
 
-        <div className="message-list" aria-live="polite">
+        <div className="message-list" aria-live="polite" ref={messageListRef}>
           {isLoadingRooms && (
             <div className="empty-chat">
               <span>#</span>
@@ -486,7 +753,43 @@ export function ChatPage() {
             </div>
           )}
 
-          {!isLoadingRooms && activeRoom && messages.length === 0 && (
+          {activeRoom && !activeMessagePage?.initialized && activeMessagePage?.isLoading && (
+            <p className="message-history-status">메시지를 불러오는 중...</p>
+          )}
+
+          {activeRoom && activeMessagePage?.error && (
+            <div className="message-history-error" role="alert">
+              <p>{activeMessagePage.error}</p>
+              <button
+                type="button"
+                onClick={() => activeMessagePage.initialized
+                  ? void handleLoadOlderMessages()
+                  : void loadMessages(activeRoom.roomId)}
+              >
+                다시 시도
+              </button>
+            </div>
+          )}
+
+          {activeRoom
+            && activeMessagePage?.initialized
+            && activeMessagePage.hasNext
+            && !activeMessagePage.error && (
+            <div className="message-history-control">
+              <button
+                type="button"
+                onClick={() => void handleLoadOlderMessages()}
+                disabled={activeMessagePage.isLoading}
+              >
+                {activeMessagePage.isLoading ? "불러오는 중..." : "이전 메시지 불러오기"}
+              </button>
+            </div>
+          )}
+
+          {!isLoadingRooms
+            && activeRoom
+            && activeMessagePage?.initialized
+            && messages.length === 0 && (
             <div className="empty-chat">
               <span>#</span>
               <h2>{activeRoom.name ?? "Direct"}의 첫 메시지를 보내세요.</h2>
@@ -494,29 +797,44 @@ export function ChatPage() {
             </div>
           )}
 
-          {messages.map((item, index) =>
-            item.type === "CHAT" ? (
-              <article
-                className={item.senderId === memberId ? "message own" : "message"}
-                key={`${item.senderId}-${index}`}
-              >
-                <span className="message-avatar">
-                  {item.senderNickname.slice(-2).toUpperCase()}
-                </span>
-                <div>
-                  <strong>{item.senderNickname}</strong>
-                  <p>{item.content}</p>
-                </div>
-              </article>
-            ) : (
-              <p
-                className="system-message"
-                key={`${item.type}-${item.senderId}-${index}`}
-              >
-                <span /> {item.content}
-              </p>
-            ),
-          )}
+          {messages.map((item, index) => {
+            const previousMessage = messages[index - 1];
+            const shouldShowDate = !previousMessage
+              || !isSameMessageDate(previousMessage.createdAt, item.createdAt);
+
+            return (
+              <Fragment key={item.messageId}>
+                {shouldShowDate && (
+                  <div className="message-date-divider">
+                    <span>{formatMessageDate(item.createdAt)}</span>
+                  </div>
+                )}
+
+                {item.type === "TEXT" ? (
+                  <article
+                    className={item.senderId === memberId ? "message own" : "message"}
+                  >
+                    <span className="message-avatar">
+                      {item.senderNickname?.slice(-2).toUpperCase() ?? "!"}
+                    </span>
+                    <div className="message-content">
+                      <strong>{item.senderNickname ?? "알 수 없는 사용자"}</strong>
+                      <div className="message-bubble-row">
+                        <p>{item.content}</p>
+                        <time dateTime={item.createdAt}>
+                          {formatMessageTime(item.createdAt)}
+                        </time>
+                      </div>
+                    </div>
+                  </article>
+                ) : (
+                  <p className="system-message">
+                    <span /> {item.content}
+                  </p>
+                )}
+              </Fragment>
+            );
+          })}
           <div ref={messageEndRef} />
         </div>
 
@@ -717,6 +1035,50 @@ export function ChatPage() {
                 disabled={joiningRoomId !== null}
               >
                 {joiningRoomId !== null ? "참여 중..." : "참여하기"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {leaveTargetRoom && (
+        <div className="leave-room-modal" role="presentation">
+          <section
+            className="leave-room-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="leave-room-dialog-title"
+          >
+            <span className="leave-room-symbol" aria-hidden="true">#</span>
+            <p className="eyebrow">LEAVE CHANNEL</p>
+            <h2 id="leave-room-dialog-title">{leaveTargetRoom.name ?? "Direct"}</h2>
+            <p className="leave-room-description">
+              이 채팅방에서 나가시겠습니까?<br />
+              재참여하기 전까지 새로운 메시지를 받을 수 없습니다.
+            </p>
+
+            {leaveRoomError && (
+              <p className="leave-room-error" role="alert">
+                {leaveRoomError}
+              </p>
+            )}
+
+            <footer>
+              <button
+                className="cancel-leave-room-button"
+                type="button"
+                onClick={handleCloseLeaveRoomModal}
+                disabled={isLeavingRoom}
+              >
+                취소
+              </button>
+              <button
+                className="confirm-leave-room-button"
+                type="button"
+                onClick={() => void handleLeaveRoom()}
+                disabled={isLeavingRoom}
+              >
+                {isLeavingRoom ? "나가는 중..." : "채팅방 나가기"}
               </button>
             </footer>
           </section>
