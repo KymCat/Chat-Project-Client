@@ -24,6 +24,13 @@ export interface GroupChatRoomResponse {
   lastMessageAt: string | null;
 }
 
+export interface ChatRoomMemberResponse {
+  memberId: number;
+  displayName: string;
+  role: "OWNER" | "MEMBER";
+  joinedAt: string;
+}
+
 export interface ChatMessage {
   messageId: number;
   roomId: number;
@@ -50,6 +57,8 @@ export const chatRoomApi = {
     httpClient.post<GroupChatRoomResponse>(`/chat-rooms/${roomId}/members`),
   leave: (roomId: number) =>
     httpClient.delete<void>(`/chat-rooms/${roomId}/members`),
+  getMembers: (roomId: number) =>
+    httpClient.get<ChatRoomMemberResponse[]>(`/chat-rooms/${roomId}/members`),
   getMessages: (
     roomId: number,
     beforeMessageId: number | null = null,

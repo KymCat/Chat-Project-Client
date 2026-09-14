@@ -14,6 +14,7 @@ import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel"
 import {
   chatRoomApi,
   type ChatMessage,
+  type ChatRoomMemberResponse,
   type ChatRoomResponse,
   type GroupChatRoomResponse,
 } from "../features/chat/api";
@@ -104,12 +105,18 @@ export function ChatPage() {
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isMemberListOpen, setIsMemberListOpen] = useState(false);
+  const [isRoomMenuOpen, setIsRoomMenuOpen] = useState(false);
+  const [roomMembers, setRoomMembers] = useState<ChatRoomMemberResponse[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [memberListError, setMemberListError] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
   const loadingMessageRoomIdsRef = useRef(new Set<number>());
   const pendingHistoryScrollRef = useRef<PendingHistoryScroll | null>(null);
   const shouldScrollToBottomRef = useRef(true);
+  const memberRequestIdRef = useRef(0);
   const messageListRef = useRef<HTMLDivElement>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
 
@@ -439,6 +446,7 @@ export function ChatPage() {
   const handleOpenLeaveRoomModal = () => {
     if (!activeRoom || activeRoom.role === "OWNER") return;
 
+    setIsRoomMenuOpen(false);
     setLeaveRoomError("");
     setLeaveTargetRoom(activeRoom);
   };
@@ -514,17 +522,76 @@ export function ChatPage() {
     setIsCreateRoomModalOpen(false);
   };
 
+  const loadRoomMembers = useCallback(async (roomId: number) => {
+    const requestId = ++memberRequestIdRef.current;
+    setIsLoadingMembers(true);
+    setMemberListError("");
+
+    try {
+      const response = await chatRoomApi.getMembers(roomId);
+      if (memberRequestIdRef.current === requestId) {
+        setRoomMembers(response);
+      }
+    } catch (loadError) {
+      if (memberRequestIdRef.current === requestId) {
+        setRoomMembers([]);
+        setMemberListError(
+          loadError instanceof Error
+            ? loadError.message
+            : "채팅방 멤버를 불러오지 못했습니다.",
+        );
+      }
+    } finally {
+      if (memberRequestIdRef.current === requestId) {
+        setIsLoadingMembers(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeRoomId === null) {
+      memberRequestIdRef.current += 1;
+      setRoomMembers([]);
+      setIsLoadingMembers(false);
+      setMemberListError("");
+      return;
+    }
+
+    void loadRoomMembers(activeRoomId);
+  }, [activeRoomId, loadRoomMembers]);
+
+  const handleToggleMemberList = () => {
+    if (isMemberListOpen) {
+      setIsMemberListOpen(false);
+      return;
+    }
+
+    setIsRoomMenuOpen(false);
+    setIsMemberListOpen(true);
+  };
+
+  const handleToggleRoomMenu = () => {
+    setIsMemberListOpen(false);
+    setIsRoomMenuOpen((isOpen) => !isOpen);
+  };
+
   const handleOpenRoom = (roomId: number) => {
+    setIsMemberListOpen(false);
+    setIsRoomMenuOpen(false);
     setActiveRoomId(roomId);
     setIsChatOpen(true);
   };
 
   const handleOpenEmptyChat = () => {
+    setIsMemberListOpen(false);
+    setIsRoomMenuOpen(false);
     setActiveRoomId(null);
     setIsChatOpen(true);
   };
 
   const handleCloseRoom = () => {
+    setIsMemberListOpen(false);
+    setIsRoomMenuOpen(false);
     setActiveRoomId(null);
     setIsChatOpen(false);
     setMessage("");
@@ -545,17 +612,39 @@ export function ChatPage() {
 
         <nav className="navigation-menu" aria-label="메인 메뉴">
           <div className="navigation-item active">
-            <span className="navigation-glyph" aria-hidden="true">#</span>
+            <span className="navigation-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M5.5 5.5h13A2.5 2.5 0 0 1 21 8v7a2.5 2.5 0 0 1-2.5 2.5H11L6 21v-3.5h-.5A2.5 2.5 0 0 1 3 15V8a2.5 2.5 0 0 1 2.5-2.5Z"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M8 10h8M8 13.5h5"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
             <strong>채팅방</strong>
             <em>{rooms.length}</em>
           </div>
           <div className="navigation-item muted">
-            <span className="navigation-glyph" aria-hidden="true">+</span>
+            <span className="navigation-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M14 19v-1.2c0-2.1-1.7-3.8-3.8-3.8H6.8A3.8 3.8 0 0 0 3 17.8V19M8.5 10.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM18 8v6M15 11h6"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
             <strong>친구</strong>
-          </div>
-          <div className="navigation-item muted">
-            <span className="navigation-glyph" aria-hidden="true">•</span>
-            <strong>설정</strong>
           </div>
         </nav>
 
@@ -701,27 +790,131 @@ export function ChatPage() {
         inert={!isChatOpen}
       >
         <header className="chat-header">
-          <div>
-            <p className="eyebrow">
-              CHANNEL / {activeRoom ? String(activeRoom.roomId).padStart(2, "0") : "--"}
-            </p>
-            <h1># {activeRoom?.name ?? "채팅방 없음"}</h1>
+          <div className="chat-room-heading">
+            <h1>{activeRoom?.name ?? "채팅방 없음"}</h1>
+            <div className="members-popover-anchor">
+                <button
+                  className="member-summary-button"
+                  type="button"
+                  onClick={handleToggleMemberList}
+                  disabled={!activeRoom}
+                  aria-expanded={isMemberListOpen}
+                  aria-controls="chat-room-members"
+                  aria-label="채팅방 멤버 목록"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M16 20v-1.5c0-2.2-1.8-4-4-4H7c-2.2 0-4 1.8-4 4V20M9.5 10.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM17 11a3 3 0 0 0 0-6M18 14.7c1.8.5 3 2.1 3 3.8V20"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span>{isLoadingMembers ? "…" : roomMembers.length}</span>
+                </button>
+
+                {isMemberListOpen && activeRoom && (
+                  <section
+                    className="members-dropdown"
+                    id="chat-room-members"
+                    aria-label={`${activeRoom.name ?? "Direct"} 멤버 목록`}
+                  >
+                    <div className="members-dropdown-header">
+                      <strong>참여 중인 멤버</strong>
+                      {!isLoadingMembers && !memberListError && (
+                        <span>{roomMembers.length}명</span>
+                      )}
+                    </div>
+
+                    {isLoadingMembers && (
+                      <p className="members-status">멤버를 불러오는 중...</p>
+                    )}
+
+                    {!isLoadingMembers && memberListError && (
+                      <div className="members-error" role="alert">
+                        <p>{memberListError}</p>
+                        <button
+                          type="button"
+                          onClick={() => void loadRoomMembers(activeRoom.roomId)}
+                        >
+                          다시 시도
+                        </button>
+                      </div>
+                    )}
+
+                    {!isLoadingMembers && !memberListError && roomMembers.length === 0 && (
+                      <p className="members-status">표시할 멤버가 없습니다.</p>
+                    )}
+
+                    {!isLoadingMembers && !memberListError && roomMembers.length > 0 && (
+                      <ul className="members-list">
+                        {roomMembers.map((roomMember) => (
+                          <li key={roomMember.memberId}>
+                            <span className="member-list-avatar" aria-hidden="true">
+                              {roomMember.displayName.slice(-2).toUpperCase()}
+                            </span>
+                            <span className="member-list-identity">
+                              <strong>{roomMember.displayName}</strong>
+                              <small>
+                                {roomMember.role === "OWNER" ? "방장" : "멤버"}
+                                {roomMember.memberId === memberId ? " · 나" : ""}
+                              </small>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )}
+            </div>
           </div>
           <div className="chat-header-actions">
-            <span className={isConnected ? "connection online" : "connection"}>
-              <i /> {isConnected ? "LIVE" : activeRoom ? "CONNECTING" : "NO CHANNEL"}
-            </span>
-            <button
-              className="leave-chat-button"
-              type="button"
-              onClick={handleOpenLeaveRoomModal}
-              disabled={!activeRoom || activeRoom.role === "OWNER"}
-              title={activeRoom?.role === "OWNER"
-                ? "방장은 소유권을 위임한 후 나갈 수 있습니다."
-                : "채팅방 나가기"}
-            >
-              나가기
-            </button>
+            <div className="room-menu-anchor">
+              <button
+                className="room-menu-button"
+                type="button"
+                onClick={handleToggleRoomMenu}
+                disabled={!activeRoom}
+                aria-expanded={isRoomMenuOpen}
+                aria-controls="chat-room-menu"
+                aria-label="채팅방 메뉴"
+              >
+                <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                  <path
+                    d="M4 6h12M4 10h12M4 14h12"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+
+              {isRoomMenuOpen && activeRoom && (
+                <div className="room-menu-dropdown" id="chat-room-menu">
+                  <button
+                    className="leave-chat-button"
+                    type="button"
+                    onClick={handleOpenLeaveRoomModal}
+                    disabled={activeRoom.role === "OWNER"}
+                    title={activeRoom.role === "OWNER"
+                      ? "방장은 소유권을 위임한 후 나갈 수 있습니다."
+                      : "채팅방 나가기"}
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                      <path
+                        d="M8 4H5.5A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8M12.5 6.5 16 10l-3.5 3.5M16 10H8"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    채팅방 나가기
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               className="close-chat-button"
               type="button"

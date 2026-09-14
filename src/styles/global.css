@@ -1645,103 +1645,6 @@ a {
   background: #121214;
 }
 
-.navigation-rail {
-  display: flex;
-  width: 220px;
-  min-width: 220px;
-  height: 100%;
-  padding: 28px 18px 20px;
-  flex-direction: column;
-  border-right: 1px solid var(--line);
-  background: #141416;
-}
-
-.navigation-brand {
-  min-height: 74px;
-  padding: 0 6px 22px;
-  border-bottom: 1px solid var(--line);
-}
-
-.navigation-brand .brand-logo {
-  width: 154px;
-  height: 62px;
-}
-
-.navigation-menu {
-  display: grid;
-  margin-top: 28px;
-  gap: 8px;
-}
-
-.navigation-item {
-  display: grid;
-  min-height: 48px;
-  padding: 0 12px;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  border: 1px solid transparent;
-  border-radius: 14px;
-  color: var(--muted);
-}
-
-.navigation-item.active {
-  border-color: rgba(57, 216, 230, 0.18);
-  color: var(--white);
-  background: rgba(57, 216, 230, 0.06);
-  box-shadow: inset 2px 0 0 var(--yellow);
-}
-
-.navigation-item.muted {
-  opacity: 0.62;
-}
-
-.navigation-glyph {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border-radius: 9px;
-  color: var(--yellow);
-  background: rgba(57, 216, 230, 0.06);
-  font-size: 16px;
-  font-weight: 900;
-}
-
-.navigation-item strong {
-  font-size: 15px;
-}
-
-.navigation-item em {
-  min-width: 24px;
-  padding: 3px 7px;
-  border-radius: 999px;
-  color: #101012;
-  background: var(--yellow);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 900;
-  text-align: center;
-}
-
-.navigation-account {
-  margin-top: auto;
-  padding: 18px 6px 0;
-  grid-template-columns: 40px minmax(0, 1fr);
-}
-
-.navigation-account .avatar {
-  width: 40px;
-  height: 40px;
-}
-
-.navigation-account button {
-  grid-column: 2;
-  padding: 5px 0 0;
-  justify-self: start;
-  font-size: 12px;
-}
-
 .chat-sidebar {
   width: 340px;
   min-width: 0;
@@ -1905,53 +1808,9 @@ a {
 }
 
 @media (max-width: 1080px) {
-  .navigation-rail {
-    width: 82px;
-    min-width: 82px;
-    padding: 22px 12px 18px;
-  }
-
-  .navigation-brand {
-    display: flex;
-    justify-content: center;
-    padding-right: 0;
-    padding-left: 0;
-  }
-
-  .navigation-brand .brand-logo {
-    width: 58px;
-    height: 42px;
-    object-fit: contain;
-  }
-
-  .navigation-item {
-    display: flex;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .navigation-item strong,
-  .navigation-item em,
-  .navigation-account > div,
-  .navigation-account button {
-    display: none;
-  }
-
-  .navigation-account {
-    display: flex;
-    padding: 16px 0 0;
-    justify-content: center;
-  }
-
   .chat-sidebar {
     width: 300px;
     padding: 22px 14px 18px;
-  }
-
-  .room-browser .chat-sidebar,
-  .layout-opening .chat-sidebar,
-  .layout-closing .chat-sidebar {
-    width: calc(100% - 82px);
   }
 }
 

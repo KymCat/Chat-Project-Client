@@ -13,10 +13,10 @@
 
 .navigation-rail {
   display: flex;
-  width: 88px;
-  min-width: 88px;
+  width: 68px;
+  min-width: 68px;
   height: 100%;
-  padding: 22px 12px 18px;
+  padding: 16px 10px 14px;
   flex-direction: column;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   background: #141416;
@@ -24,48 +24,47 @@
 
 .navigation-brand {
   display: flex;
-  min-height: 64px;
-  padding: 0 0 20px;
+  min-height: 54px;
+  padding: 0 0 16px;
   align-items: center;
   justify-content: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .navigation-brand .brand-logo {
-  width: 64px;
-  height: 38px;
+  width: 48px;
+  height: 30px;
   object-fit: contain;
 }
 
 .navigation-menu {
   display: grid;
-  margin-top: 24px;
+  margin-top: 18px;
   gap: 10px;
 }
 
 .navigation-item {
   position: relative;
   display: flex;
-  min-height: 50px;
+  min-height: 48px;
   padding: 0;
   align-items: center;
   justify-content: center;
-  border: 1px solid transparent;
-  border-radius: 10px;
+  border: 0;
+  border-radius: 0;
   color: #85858f;
 }
 
 .navigation-item.active {
-  border-color: rgba(57, 216, 230, 0.18);
   color: #39d8e6;
-  background: rgba(57, 216, 230, 0.07);
+  background: transparent;
 }
 
 .navigation-item.active::before {
   position: absolute;
-  top: 12px;
-  bottom: 12px;
-  left: -13px;
+  top: 8px;
+  bottom: 8px;
+  left: -11px;
   width: 3px;
   border-radius: 0 4px 4px 0;
   background: #39d8e6;
@@ -78,14 +77,34 @@
 
 .navigation-glyph {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 46px;
+  height: 46px;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 50%;
   color: currentColor;
-  background: rgba(255, 255, 255, 0.05);
-  font-size: 16px;
-  font-weight: 900;
+  background: #202024;
+  transition: border-radius 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.navigation-item.active .navigation-glyph {
+  border-radius: 15px;
+  background: rgba(57, 216, 230, 0.12);
+}
+
+.navigation-item.muted:hover {
+  opacity: 0.9;
+}
+
+.navigation-item.muted:hover .navigation-glyph {
+  border-radius: 15px;
+  color: #d8d8dd;
+  background: #292930;
+}
+
+.navigation-glyph svg {
+  display: block;
+  width: 25px;
+  height: 25px;
 }
 
 .navigation-item strong,
@@ -483,7 +502,7 @@
 }
 
 .room-browser .chat-sidebar {
-  width: calc(100% - 88px);
+  width: calc(100% - 68px);
   padding-right: clamp(28px, 7vw, 120px);
   padding-left: clamp(28px, 7vw, 120px);
 }
@@ -525,6 +544,7 @@
 }
 
 .chat-header {
+  position: relative;
   display: flex;
   min-height: 78px;
   padding: 16px clamp(22px, 3vw, 42px);
@@ -541,15 +561,74 @@
 }
 
 .chat-header h1 {
-  margin: 4px 0 0;
+  margin: 0;
   font-family: "Plus Jakarta Sans", Pretendard, "Noto Sans KR", sans-serif;
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
 
+.chat-room-heading {
+  min-width: 0;
+}
+
+.members-popover-anchor,
+.room-menu-anchor {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.member-summary-button,
+.room-menu-button {
+  display: flex;
+  height: 30px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  color: #92929d;
+  background: transparent;
+}
+
+.member-summary-button {
+  min-width: 34px;
+  margin-top: 1px;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.room-menu-button {
+  width: 34px;
+}
+
+.member-summary-button:hover:not(:disabled),
+.member-summary-button[aria-expanded="true"],
+.room-menu-button:hover:not(:disabled),
+.room-menu-button[aria-expanded="true"] {
+  color: #39d8e6;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.member-summary-button:disabled,
+.room-menu-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.36;
+}
+
+.member-summary-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.room-menu-button svg {
+  width: 18px;
+  height: 18px;
+}
+
 .chat-header-actions {
   display: flex;
+  min-height: 34px;
   align-items: center;
   gap: 12px;
 }
@@ -575,39 +654,47 @@
   height: 34px;
   padding: 0;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 0;
   border-radius: 10px;
   color: #92929d;
-  background: #222228;
+  background: transparent;
   font-size: 19px;
   line-height: 1;
 }
 
 .close-chat-button:hover {
-  border-color: rgba(57, 216, 230, 0.28);
   color: #39d8e6;
-  background: #292930;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .leave-chat-button {
+  display: flex;
   height: 34px;
   padding: 0 12px;
-  border: 1px solid rgba(255, 107, 145, 0.2);
+  align-items: center;
+  gap: 9px;
+  border: 0;
   border-radius: 10px;
-  color: #ff8aa8;
-  background: rgba(255, 107, 145, 0.07);
+  color: #c4c4cb;
+  background: transparent;
   font-size: 12px;
   font-weight: 700;
 }
 
 .leave-chat-button:hover:not(:disabled) {
-  border-color: rgba(255, 107, 145, 0.4);
-  background: rgba(255, 107, 145, 0.12);
+  color: #f5f5f7;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .leave-chat-button:disabled {
   cursor: not-allowed;
   opacity: 0.36;
+}
+
+.leave-chat-button svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
 }
 
 .email-verification-area {
@@ -1157,6 +1244,151 @@
   background: rgba(255, 107, 145, 0.14);
 }
 
+.members-dropdown {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 10px);
+  left: 0;
+  width: min(340px, calc(100vw - 120px));
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: #202024;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+  animation: create-room-dialog-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.members-dropdown-header {
+  display: flex;
+  padding: 0 4px 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.members-dropdown-header strong {
+  color: #e8e8eb;
+  font-size: 13px;
+}
+
+.members-dropdown-header span {
+  color: #85858f;
+  font-size: 11px;
+}
+
+.room-menu-dropdown {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 176px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: #202024;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.38);
+  animation: create-room-dialog-enter 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.members-status {
+  margin: 0;
+  color: #92929d;
+  font-size: 12px;
+}
+
+.members-status {
+  padding: 24px 0;
+  text-align: center;
+}
+
+.members-list {
+  max-height: min(340px, calc(100vh - 150px));
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-color: #35353d transparent;
+  scrollbar-width: thin;
+}
+
+.members-list li {
+  display: flex;
+  min-height: 62px;
+  padding: 10px 8px;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.member-list-avatar {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: #f5f5f7;
+  background: #303038;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.member-list-identity {
+  min-width: 0;
+}
+
+.member-list-identity strong,
+.member-list-identity small {
+  display: block;
+}
+
+.member-list-identity strong {
+  overflow: hidden;
+  color: #e8e8eb;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-list-identity small {
+  margin-top: 4px;
+  color: #85858f;
+  font-size: 11px;
+}
+
+.members-error {
+  display: flex;
+  padding: 24px 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.members-error p {
+  margin: 0;
+  color: #ff8aa8;
+  font-size: 12px;
+}
+
+.members-error button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(57, 216, 230, 0.2);
+  border-radius: 10px;
+  color: #b7edf1;
+  background: rgba(57, 216, 230, 0.06);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.room-menu-dropdown .leave-chat-button {
+  width: 100%;
+  height: 38px;
+  padding: 0 11px;
+  text-align: left;
+}
+
 .join-room-modal {
   position: fixed;
   z-index: 100;
@@ -1390,7 +1622,7 @@
   }
 
   .room-browser .chat-sidebar {
-    width: calc(100% - 88px);
+    width: calc(100% - 68px);
   }
 }
 
@@ -1516,6 +1748,8 @@
   .create-room-dialog,
   .profile-modal,
   .profile-dialog,
+  .members-dropdown,
+  .room-menu-dropdown,
   .join-room-modal,
   .join-room-dialog,
   .leave-room-modal,
