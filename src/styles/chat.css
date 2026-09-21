@@ -112,10 +112,13 @@
   display: none;
 }
 
-.navigation-account {
+.chat-shell .navigation-rail .navigation-account {
   display: flex;
+  width: 100%;
   margin-top: auto;
   padding: 18px 0 0;
+  grid-template-columns: none;
+  align-self: stretch;
   align-items: center;
   justify-content: center;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -123,7 +126,7 @@
 
 .chat-shell.room-browser .navigation-rail .navigation-account {
   display: flex;
-  width: auto;
+  width: 100%;
   margin: auto 0 0;
   padding: 18px 0 0;
   grid-column: auto;
@@ -161,7 +164,7 @@
   display: grid;
   width: 42px;
   height: 42px;
-  margin: 0;
+  margin: 0 auto;
   padding: 0;
   place-items: center;
   border: 0;
@@ -440,6 +443,32 @@
   font-family: "Plus Jakarta Sans", sans-serif;
   font-size: 18px;
   font-weight: 700;
+}
+
+.room-details {
+  position: relative;
+  min-width: 0;
+  padding-right: 38px;
+  flex: 1 1 auto;
+}
+
+.room-unread-count {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  place-items: center;
+  border-radius: 999px;
+  color: #101012;
+  background: #39d8e6;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1;
+  transform: translateY(-50%);
 }
 
 .room-button strong,
@@ -859,6 +888,14 @@
   background: #f1f1f3;
 }
 
+.message-bubble-row p.deleted-message,
+.message.own .message-bubble-row p.deleted-message {
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  color: #85858f;
+  background: #202024;
+  font-style: italic;
+}
+
 .message-bubble-row time {
   margin-bottom: 2px;
   flex: 0 0 auto;
@@ -867,6 +904,110 @@
   font-variant-numeric: tabular-nums;
   line-height: 1;
   white-space: nowrap;
+}
+
+.message-edit-button,
+.message-delete-button {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #85858f;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.message:hover .message-edit-button,
+.message:hover .message-delete-button,
+.message-edit-button:focus-visible,
+.message-delete-button:focus-visible {
+  opacity: 1;
+}
+
+.message-edit-button:hover,
+.message-delete-button:hover {
+  color: #f0f0f2;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.message-edit-button:disabled,
+.message-delete-button:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
+.message-edit-button svg,
+.message-delete-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.message-edited-label {
+  margin-bottom: 1px;
+  flex: 0 0 auto;
+  color: #72727c;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.message-edit-form {
+  display: flex;
+  width: min(520px, 70vw);
+  margin-top: 6px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message-edit-form input {
+  width: 100%;
+  height: 42px;
+  padding: 0 13px;
+  border: 1px solid rgba(57, 216, 230, 0.42);
+  border-radius: 12px;
+  outline: none;
+  color: #f0f0f2;
+  background: #25252b;
+  font: inherit;
+}
+
+.message-edit-form input:focus {
+  border-color: #39d8e6;
+  box-shadow: 0 0 0 3px rgba(57, 216, 230, 0.1);
+}
+
+.message-edit-form > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.message-edit-form button {
+  min-width: 52px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #b8b8c0;
+  background: #303038;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.message-edit-form button[type="submit"] {
+  color: #111114;
+  background: #39d8e6;
+}
+
+.message-edit-form button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .message-date-divider {
@@ -1336,6 +1477,7 @@
 
 .member-list-identity {
   min-width: 0;
+  flex: 1;
 }
 
 .member-list-identity strong,
@@ -1355,6 +1497,23 @@
   margin-top: 4px;
   color: #85858f;
   font-size: 11px;
+}
+
+.owner-transfer-button {
+  min-width: auto;
+  height: 30px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  color: #9ddfe5;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.owner-transfer-button:hover {
+  color: #d8fbfe;
+  background: transparent;
 }
 
 .members-error {
@@ -1598,6 +1757,117 @@
   opacity: 0.42;
 }
 
+.owner-transfer-modal {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  padding: 20px;
+  place-items: center;
+  background: rgba(8, 8, 10, 0.78);
+  backdrop-filter: blur(6px);
+  animation: create-room-modal-enter 160ms ease-out;
+}
+
+.owner-transfer-dialog {
+  width: min(100%, 420px);
+  padding: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: #202024;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
+  text-align: center;
+  animation: create-room-dialog-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.owner-transfer-symbol {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 18px;
+  place-items: center;
+  border: 1px solid rgba(57, 216, 230, 0.24);
+  border-radius: 14px;
+  color: #39d8e6;
+  background: rgba(57, 216, 230, 0.08);
+}
+
+.owner-transfer-symbol svg {
+  width: 25px;
+  height: 25px;
+}
+
+.owner-transfer-dialog .eyebrow {
+  color: #39d8e6;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.owner-transfer-dialog h2 {
+  margin: 6px 0 0;
+  color: #f5f5f7;
+  font-family: "Plus Jakarta Sans", Pretendard, "Noto Sans KR", sans-serif;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.owner-transfer-description {
+  margin: 10px 0 0;
+  color: #92929d;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.owner-transfer-description strong {
+  color: #e8e8eb;
+}
+
+.owner-transfer-error {
+  margin: 16px 0 0;
+  color: #ff8aa8;
+  font-size: 12px;
+}
+
+.owner-transfer-dialog footer {
+  display: grid;
+  margin-top: 26px;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.owner-transfer-dialog footer button {
+  height: 42px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cancel-owner-transfer-button {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #b0b0b8;
+  background: #292930;
+}
+
+.confirm-owner-transfer-button {
+  border: 0;
+  color: #101012;
+  background: #39d8e6;
+}
+
+.cancel-owner-transfer-button:hover:not(:disabled) {
+  color: #f5f5f7;
+  background: #32323a;
+}
+
+.confirm-owner-transfer-button:hover:not(:disabled) {
+  background: #65e2ec;
+}
+
+.owner-transfer-dialog footer button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
 @keyframes create-room-modal-enter {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -1750,6 +2020,8 @@
   .profile-dialog,
   .members-dropdown,
   .room-menu-dropdown,
+  .owner-transfer-modal,
+  .owner-transfer-dialog,
   .join-room-modal,
   .join-room-dialog,
   .leave-room-modal,

@@ -16,6 +16,7 @@ export interface ChatRoomResponse {
   name: string | null;
   role: "OWNER" | "MEMBER";
   lastMessageAt: string | null;
+  unreadCount: number;
 }
 
 export interface GroupChatRoomResponse {
@@ -31,14 +32,27 @@ export interface ChatRoomMemberResponse {
   joinedAt: string;
 }
 
+export interface ChatRoomOwnerTransferRequest {
+  newOwnerMemberId: number;
+}
+
 export interface ChatMessage {
   messageId: number;
   roomId: number;
   senderId: number | null;
   senderNickname: string | null;
   type: "TEXT" | "IMAGE" | "FILE" | "SYSTEM";
-  content: string;
+  content: string | null;
   createdAt: string;
+  editedAt: string | null;
+  deleted: boolean;
+}
+
+export type ChatMessageEventType = "CREATED" | "UPDATED" | "DELETED";
+
+export interface ChatMessageEvent {
+  eventType: ChatMessageEventType;
+  message: ChatMessage;
 }
 
 export interface CursorPageResponse<T> {
@@ -54,11 +68,25 @@ export const chatRoomApi = {
   getAvailable: () =>
     httpClient.get<GroupChatRoomResponse[]>("/chat-rooms/available"),
   join: (roomId: number) =>
-    httpClient.post<GroupChatRoomResponse>(`/chat-rooms/${roomId}/members`),
+    httpClient.post<void>(`/chat-rooms/${roomId}/members`),
   leave: (roomId: number) =>
     httpClient.delete<void>(`/chat-rooms/${roomId}/members`),
   getMembers: (roomId: number) =>
     httpClient.get<ChatRoomMemberResponse[]>(`/chat-rooms/${roomId}/members`),
+  transferOwnership: (
+    roomId: number,
+    request: ChatRoomOwnerTransferRequest,
+  ) => httpClient.patch<void>(`/chat-rooms/${roomId}/owner`, request),
+  updateReadPosition: (roomId: number, lastReadMessageId: number) =>
+    httpClient.patch<void>(`/chat-rooms/${roomId}/read-position`, {
+      lastReadMessageId,
+    }),
+  deleteMessage: (roomId: number, messageId: number) =>
+    httpClient.delete<void>(`/chat-rooms/${roomId}/messages/${messageId}`),
+  editMessage: (roomId: number, messageId: number, content: string) =>
+    httpClient.patch<void>(`/chat-rooms/${roomId}/messages/${messageId}`, {
+      content,
+    }),
   getMessages: (
     roomId: number,
     beforeMessageId: number | null = null,

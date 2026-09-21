@@ -14,6 +14,7 @@ import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel"
 import {
   chatRoomApi,
   type ChatMessage,
+  type ChatMessageEvent,
   type ChatRoomMemberResponse,
   type ChatRoomResponse,
   type GroupChatRoomResponse,
@@ -98,6 +99,10 @@ export function ChatPage() {
   const [messagesByRoom, setMessagesByRoom] = useState<Record<number, ChatMessage[]>>({});
   const [messagePagesByRoom, setMessagePagesByRoom] = useState<Record<number, MessagePageState>>({});
   const [message, setMessage] = useState("");
+  const [deletingMessageId, setDeletingMessageId] = useState<number | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [editingMessageContent, setEditingMessageContent] = useState("");
+  const [isSavingMessageEdit, setIsSavingMessageEdit] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState("");
   const [roomName, setRoomName] = useState("");
@@ -110,6 +115,10 @@ export function ChatPage() {
   const [roomMembers, setRoomMembers] = useState<ChatRoomMemberResponse[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [memberListError, setMemberListError] = useState("");
+  const [ownerTransferTarget, setOwnerTransferTarget] =
+    useState<ChatRoomMemberResponse | null>(null);
+  const [isTransferringOwnership, setIsTransferringOwnership] = useState(false);
+  const [ownerTransferError, setOwnerTransferError] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
@@ -119,6 +128,11 @@ export function ChatPage() {
   const memberRequestIdRef = useRef(0);
   const messageListRef = useRef<HTMLDivElement>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
+  const activeRoomIdRef = useRef<number | null>(null);
+  const isChatOpenRef = useRef(true);
+  const lastReadRequestByRoomRef = useRef(new Map<number, number>());
+  const latestMessageIdByRoomRef = useRef(new Map<number, number>());
+  const isRecoveringConnectionRef = useRef(false);
 
   const claims = useMemo(
     () => (accessToken ? readAccessToken(accessToken) : null),
@@ -152,6 +166,56 @@ export function ChatPage() {
     );
   }, [availableRooms, roomSearchQuery]);
 
+  useEffect(() => {
+    activeRoomIdRef.current = activeRoomId;
+  }, [activeRoomId]);
+
+  useEffect(() => {
+    isChatOpenRef.current = isChatOpen;
+  }, [isChatOpen]);
+
+  const isViewingRoomAtBottom = useCallback((roomId: number) => {
+    const messageList = messageListRef.current;
+    if (
+      activeRoomIdRef.current !== roomId
+      || !isChatOpenRef.current
+      || document.visibilityState !== "visible"
+      || !document.hasFocus()
+      || !messageList
+    ) {
+      return false;
+    }
+
+    const distanceFromBottom = messageList.scrollHeight
+      - messageList.scrollTop
+      - messageList.clientHeight;
+    return distanceFromBottom <= 48;
+  }, []);
+
+  const markRoomAsRead = useCallback(async (
+    roomId: number,
+    lastReadMessageId: number,
+  ) => {
+    if (lastReadRequestByRoomRef.current.get(roomId) === lastReadMessageId) {
+      return;
+    }
+
+    lastReadRequestByRoomRef.current.set(roomId, lastReadMessageId);
+
+    try {
+      await chatRoomApi.updateReadPosition(roomId, lastReadMessageId);
+      if (latestMessageIdByRoomRef.current.get(roomId) === lastReadMessageId) {
+        setRooms((current) => current.map((room) =>
+          room.roomId === roomId ? { ...room, unreadCount: 0 } : room,
+        ));
+      }
+    } catch {
+      if (lastReadRequestByRoomRef.current.get(roomId) === lastReadMessageId) {
+        lastReadRequestByRoomRef.current.delete(roomId);
+      }
+    }
+  }, []);
+
   const loadRooms = useCallback(async (preferredRoomId?: number) => {
     setIsLoadingRooms(true);
     setRoomListError("");
@@ -165,12 +229,14 @@ export function ChatPage() {
 
         return roomExists ? nextRoomId : response[0]?.roomId ?? null;
       });
+      return response;
     } catch (loadError) {
       setRoomListError(
         loadError instanceof Error
           ? loadError.message
           : "채팅방 목록을 불러오지 못했습니다.",
       );
+      return null;
     } finally {
       setIsLoadingRooms(false);
     }
@@ -213,6 +279,12 @@ export function ChatPage() {
 
     try {
       const response = await chatRoomApi.getMessages(roomId, beforeMessageId);
+      if (beforeMessageId === null && response.content.length > 0) {
+        latestMessageIdByRoomRef.current.set(
+          roomId,
+          response.content[response.content.length - 1].messageId,
+        );
+      }
       shouldScrollToBottomRef.current = beforeMessageId === null;
       setMessagesByRoom((current) => ({
         ...current,
@@ -247,6 +319,38 @@ export function ChatPage() {
       loadingMessageRoomIdsRef.current.delete(roomId);
     }
   }, []);
+
+  const recoverAfterReconnect = useCallback(async () => {
+    if (isRecoveringConnectionRef.current) return;
+
+    isRecoveringConnectionRef.current = true;
+    const previousRoomId = activeRoomIdRef.current;
+
+    try {
+      const [refreshedRooms] = await Promise.all([
+        loadRooms(previousRoomId ?? undefined),
+        loadAvailableRooms(),
+      ]);
+
+      if (refreshedRooms === null) {
+        setError("연결은 복구됐지만 최신 채팅 정보를 불러오지 못했습니다.");
+        return;
+      }
+
+      pendingHistoryScrollRef.current = null;
+      shouldScrollToBottomRef.current = true;
+      loadingMessageRoomIdsRef.current.clear();
+      latestMessageIdByRoomRef.current.clear();
+      lastReadRequestByRoomRef.current.clear();
+      setMessagesByRoom({});
+      setMessagePagesByRoom({});
+      setEditingMessageId(null);
+      setEditingMessageContent("");
+      setError("");
+    } finally {
+      isRecoveringConnectionRef.current = false;
+    }
+  }, [loadAvailableRooms, loadRooms]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -286,22 +390,55 @@ export function ChatPage() {
     setError("");
     const connection = connectChat({
       accessToken,
-      onMessage: (receivedMessage) => {
-        shouldScrollToBottomRef.current = true;
+      onMessage: (event: ChatMessageEvent) => {
+        const receivedMessage = event.message;
+        const isCreated = event.eventType === "CREATED";
+
         setMessagesByRoom((current) => {
           const roomMessages = current[receivedMessage.roomId] ?? [];
+          if (
+            !isCreated
+            && !roomMessages.some((item) => item.messageId === receivedMessage.messageId)
+          ) {
+            return current;
+          }
+
           return {
             ...current,
             [receivedMessage.roomId]: mergeMessages(roomMessages, [receivedMessage]),
           };
         });
+
+        if (!isCreated) return;
+
+        latestMessageIdByRoomRef.current.set(
+          receivedMessage.roomId,
+          receivedMessage.messageId,
+        );
+        const isViewingRoom = isViewingRoomAtBottom(receivedMessage.roomId);
+        const countsAsUnread = receivedMessage.senderId === null
+          || receivedMessage.senderId !== memberId;
+        shouldScrollToBottomRef.current = isViewingRoom;
         setRooms((current) => current.map((room) =>
           room.roomId === receivedMessage.roomId
-            ? { ...room, lastMessageAt: receivedMessage.createdAt }
+            ? {
+                ...room,
+                lastMessageAt: receivedMessage.createdAt,
+                unreadCount: isViewingRoom || !countsAsUnread
+                  ? room.unreadCount
+                  : room.unreadCount + 1,
+              }
             : room,
         ));
+
+        if (isViewingRoom) {
+          void markRoomAsRead(receivedMessage.roomId, receivedMessage.messageId);
+        }
       },
       onStatusChange: setIsConnected,
+      onReconnect: () => {
+        void recoverAfterReconnect();
+      },
       onError: setError,
     });
     chatRef.current = connection;
@@ -310,7 +447,13 @@ export function ChatPage() {
       connection.disconnect();
       chatRef.current = null;
     };
-  }, [accessToken]);
+  }, [
+    accessToken,
+    isViewingRoomAtBottom,
+    markRoomAsRead,
+    memberId,
+    recoverAfterReconnect,
+  ]);
 
   useEffect(() => {
     chatRef.current?.syncSubscriptions(
@@ -336,6 +479,47 @@ export function ChatPage() {
     }
     shouldScrollToBottomRef.current = true;
   }, [messages]);
+
+  useEffect(() => {
+    if (activeRoomId === null || messages.length === 0) return;
+
+    const latestMessage = messages[messages.length - 1];
+    const frameId = window.requestAnimationFrame(() => {
+      if (isViewingRoomAtBottom(activeRoomId)) {
+        void markRoomAsRead(activeRoomId, latestMessage.messageId);
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeRoomId, isViewingRoomAtBottom, markRoomAsRead, messages]);
+
+  useEffect(() => {
+    const markVisibleRoomAsRead = () => {
+      if (activeRoomId === null || messages.length === 0) return;
+
+      const latestMessage = messages[messages.length - 1];
+      if (isViewingRoomAtBottom(activeRoomId)) {
+        void markRoomAsRead(activeRoomId, latestMessage.messageId);
+      }
+    };
+
+    window.addEventListener("focus", markVisibleRoomAsRead);
+    document.addEventListener("visibilitychange", markVisibleRoomAsRead);
+
+    return () => {
+      window.removeEventListener("focus", markVisibleRoomAsRead);
+      document.removeEventListener("visibilitychange", markVisibleRoomAsRead);
+    };
+  }, [activeRoomId, isViewingRoomAtBottom, markRoomAsRead, messages]);
+
+  const handleMessageListScroll = () => {
+    if (activeRoomId === null || messages.length === 0) return;
+
+    const latestMessage = messages[messages.length - 1];
+    if (isViewingRoomAtBottom(activeRoomId)) {
+      void markRoomAsRead(activeRoomId, latestMessage.messageId);
+    }
+  };
 
   const handleLoadOlderMessages = async () => {
     if (
@@ -375,6 +559,112 @@ export function ChatPage() {
       setError("");
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "메시지 전송에 실패했습니다.");
+    }
+  };
+
+  const handleDeleteMessage = async (targetMessage: ChatMessage) => {
+    if (
+      targetMessage.senderId !== memberId
+      || targetMessage.type !== "TEXT"
+      || targetMessage.deleted
+      || deletingMessageId !== null
+    ) {
+      return;
+    }
+
+    if (!window.confirm("이 메시지를 삭제하시겠습니까?")) return;
+
+    setDeletingMessageId(targetMessage.messageId);
+    setError("");
+
+    try {
+      await chatRoomApi.deleteMessage(
+        targetMessage.roomId,
+        targetMessage.messageId,
+      );
+      setMessagesByRoom((current) => ({
+        ...current,
+        [targetMessage.roomId]: (current[targetMessage.roomId] ?? []).map((item) =>
+          item.messageId === targetMessage.messageId
+            ? { ...item, content: null, deleted: true }
+            : item,
+        ),
+      }));
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "메시지를 삭제하지 못했습니다.",
+      );
+    } finally {
+      setDeletingMessageId(null);
+    }
+  };
+
+  const handleStartMessageEdit = (targetMessage: ChatMessage) => {
+    if (
+      targetMessage.senderId !== memberId
+      || targetMessage.type !== "TEXT"
+      || targetMessage.deleted
+      || targetMessage.content === null
+    ) {
+      return;
+    }
+
+    setEditingMessageId(targetMessage.messageId);
+    setEditingMessageContent(targetMessage.content);
+    setError("");
+  };
+
+  const handleCancelMessageEdit = () => {
+    if (isSavingMessageEdit) return;
+
+    setEditingMessageId(null);
+    setEditingMessageContent("");
+  };
+
+  const handleEditMessage = async (
+    event: FormEvent<HTMLFormElement>,
+    targetMessage: ChatMessage,
+  ) => {
+    event.preventDefault();
+    if (isSavingMessageEdit) return;
+
+    const content = editingMessageContent.trim();
+    if (!content || content === targetMessage.content) return;
+
+    setIsSavingMessageEdit(true);
+    setError("");
+
+    try {
+      await chatRoomApi.editMessage(
+        targetMessage.roomId,
+        targetMessage.messageId,
+        content,
+      );
+      setMessagesByRoom((current) => ({
+        ...current,
+        [targetMessage.roomId]: (current[targetMessage.roomId] ?? []).map((item) => {
+          if (item.messageId !== targetMessage.messageId) return item;
+          if (item.content === content && item.editedAt !== null) return item;
+
+          return {
+            ...item,
+            content,
+            editedAt: new Date().toISOString(),
+          };
+        }),
+      }));
+      setEditingMessageId(null);
+      setEditingMessageContent("");
+    } catch (editError) {
+      setError(
+        editError instanceof Error
+          ? editError.message
+          : "메시지를 수정하지 못했습니다.",
+      );
+    } finally {
+      setIsSavingMessageEdit(false);
     }
   };
 
@@ -575,9 +865,63 @@ export function ChatPage() {
     setIsRoomMenuOpen((isOpen) => !isOpen);
   };
 
+  const handleOpenOwnerTransferModal = (target: ChatRoomMemberResponse) => {
+    if (
+      !activeRoom
+      || activeRoom.role !== "OWNER"
+      || target.memberId === memberId
+      || target.role === "OWNER"
+    ) {
+      return;
+    }
+
+    setIsMemberListOpen(false);
+    setOwnerTransferError("");
+    setOwnerTransferTarget(target);
+  };
+
+  const handleCloseOwnerTransferModal = () => {
+    if (isTransferringOwnership) return;
+
+    setOwnerTransferError("");
+    setOwnerTransferTarget(null);
+  };
+
+  const handleTransferOwnership = async () => {
+    if (!activeRoom || !ownerTransferTarget || isTransferringOwnership) return;
+
+    const roomId = activeRoom.roomId;
+    setIsTransferringOwnership(true);
+    setOwnerTransferError("");
+
+    try {
+      await chatRoomApi.transferOwnership(roomId, {
+        newOwnerMemberId: ownerTransferTarget.memberId,
+      });
+      await Promise.all([
+        loadRooms(roomId),
+        loadRoomMembers(roomId),
+      ]);
+      setOwnerTransferTarget(null);
+      setIsMemberListOpen(true);
+    } catch (transferError) {
+      setOwnerTransferError(
+        transferError instanceof Error
+          ? transferError.message
+          : "방장 위임에 실패했습니다.",
+      );
+    } finally {
+      setIsTransferringOwnership(false);
+    }
+  };
+
   const handleOpenRoom = (roomId: number) => {
     setIsMemberListOpen(false);
     setIsRoomMenuOpen(false);
+    setOwnerTransferTarget(null);
+    setOwnerTransferError("");
+    activeRoomIdRef.current = roomId;
+    isChatOpenRef.current = true;
     setActiveRoomId(roomId);
     setIsChatOpen(true);
   };
@@ -585,6 +929,10 @@ export function ChatPage() {
   const handleOpenEmptyChat = () => {
     setIsMemberListOpen(false);
     setIsRoomMenuOpen(false);
+    setOwnerTransferTarget(null);
+    setOwnerTransferError("");
+    activeRoomIdRef.current = null;
+    isChatOpenRef.current = true;
     setActiveRoomId(null);
     setIsChatOpen(true);
   };
@@ -592,6 +940,8 @@ export function ChatPage() {
   const handleCloseRoom = () => {
     setIsMemberListOpen(false);
     setIsRoomMenuOpen(false);
+    activeRoomIdRef.current = null;
+    isChatOpenRef.current = false;
     setActiveRoomId(null);
     setIsChatOpen(false);
     setMessage("");
@@ -733,9 +1083,14 @@ export function ChatPage() {
               aria-label={`${room.name ?? "Direct"} 채팅방`}
             >
               <span className="room-hash">#</span>
-              <span>
+              <span className="room-details">
                 <strong>{room.name ?? "Direct"}</strong>
                 <small>{room.role}</small>
+                {room.unreadCount > 0 && (
+                  <em className="room-unread-count" aria-label={`읽지 않은 메시지 ${room.unreadCount}개`}>
+                    {room.unreadCount > 99 ? "99+" : room.unreadCount}
+                  </em>
+                )}
               </span>
             </button>
           ))}
@@ -861,6 +1216,17 @@ export function ChatPage() {
                                 {roomMember.memberId === memberId ? " · 나" : ""}
                               </small>
                             </span>
+                            {activeRoom.role === "OWNER"
+                              && roomMember.role === "MEMBER"
+                              && roomMember.memberId !== memberId && (
+                                <button
+                                  className="owner-transfer-button"
+                                  type="button"
+                                  onClick={() => handleOpenOwnerTransferModal(roomMember)}
+                                >
+                                  방장 위임
+                                </button>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -930,7 +1296,12 @@ export function ChatPage() {
           {!emailVerified && <EmailVerificationPanel />}
         </div>
 
-        <div className="message-list" aria-live="polite" ref={messageListRef}>
+        <div
+          className="message-list"
+          aria-live="polite"
+          ref={messageListRef}
+          onScroll={handleMessageListScroll}
+        >
           {isLoadingRooms && (
             <div className="empty-chat">
               <span>#</span>
@@ -1012,17 +1383,96 @@ export function ChatPage() {
                     </span>
                     <div className="message-content">
                       <strong>{item.senderNickname ?? "알 수 없는 사용자"}</strong>
-                      <div className="message-bubble-row">
-                        <p>{item.content}</p>
-                        <time dateTime={item.createdAt}>
-                          {formatMessageTime(item.createdAt)}
-                        </time>
-                      </div>
+                      {editingMessageId === item.messageId ? (
+                        <form
+                          className="message-edit-form"
+                          onSubmit={(event) => void handleEditMessage(event, item)}
+                        >
+                          <input
+                            value={editingMessageContent}
+                            onChange={(event) => setEditingMessageContent(event.target.value)}
+                            maxLength={1000}
+                            autoFocus
+                            aria-label="메시지 수정 내용"
+                          />
+                          <div>
+                            <button
+                              type="button"
+                              onClick={handleCancelMessageEdit}
+                              disabled={isSavingMessageEdit}
+                            >
+                              취소
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={
+                                isSavingMessageEdit
+                                || !editingMessageContent.trim()
+                                || editingMessageContent.trim() === item.content
+                              }
+                            >
+                              {isSavingMessageEdit ? "저장 중..." : "저장"}
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="message-bubble-row">
+                          <p className={item.deleted ? "deleted-message" : undefined}>
+                            {item.deleted ? "삭제된 메시지입니다." : item.content}
+                          </p>
+                          <time dateTime={item.createdAt}>
+                            {formatMessageTime(item.createdAt)}
+                          </time>
+                          {item.editedAt && !item.deleted && (
+                            <span className="message-edited-label">수정됨</span>
+                          )}
+                          {item.senderId === memberId && !item.deleted && (
+                            <>
+                              <button
+                                className="message-edit-button"
+                                type="button"
+                                onClick={() => handleStartMessageEdit(item)}
+                                disabled={editingMessageId !== null || deletingMessageId !== null}
+                                aria-label="메시지 수정"
+                                title="메시지 수정"
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                  <path
+                                    d="m4 16.5-.5 4 4-.5L19 8.5 15.5 5 4 16.5ZM13.5 7l3.5 3.5"
+                                    stroke="currentColor"
+                                    strokeWidth="1.7"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </button>
+                              <button
+                                className="message-delete-button"
+                                type="button"
+                                onClick={() => void handleDeleteMessage(item)}
+                                disabled={editingMessageId !== null || deletingMessageId !== null}
+                                aria-label="메시지 삭제"
+                                title="메시지 삭제"
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                  <path
+                                    d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"
+                                    stroke="currentColor"
+                                    strokeWidth="1.7"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </article>
                 ) : (
                   <p className="system-message">
-                    <span /> {item.content}
+                    <span /> {item.deleted ? "삭제된 메시지입니다." : item.content}
                   </p>
                 )}
               </Fragment>
@@ -1272,6 +1722,59 @@ export function ChatPage() {
                 disabled={isLeavingRoom}
               >
                 {isLeavingRoom ? "나가는 중..." : "채팅방 나가기"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {ownerTransferTarget && activeRoom && (
+        <div className="owner-transfer-modal" role="presentation">
+          <section
+            className="owner-transfer-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="owner-transfer-dialog-title"
+          >
+            <span className="owner-transfer-symbol" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 3 15 8.5l6 .9-4.3 4.3 1 6.1L12 17l-5.7 2.8 1-6.1L3 9.4l6-.9L12 3Z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            <p className="eyebrow">TRANSFER OWNER</p>
+            <h2 id="owner-transfer-dialog-title">방장을 위임하시겠습니까?</h2>
+            <p className="owner-transfer-description">
+              <strong>{ownerTransferTarget.displayName}</strong>님이 새로운 방장이 됩니다.<br />
+              위임 후에는 일반 멤버로 변경됩니다.
+            </p>
+
+            {ownerTransferError && (
+              <p className="owner-transfer-error" role="alert">
+                {ownerTransferError}
+              </p>
+            )}
+
+            <footer>
+              <button
+                className="cancel-owner-transfer-button"
+                type="button"
+                onClick={handleCloseOwnerTransferModal}
+                disabled={isTransferringOwnership}
+              >
+                취소
+              </button>
+              <button
+                className="confirm-owner-transfer-button"
+                type="button"
+                onClick={() => void handleTransferOwnership()}
+                disabled={isTransferringOwnership}
+              >
+                {isTransferringOwnership ? "위임 중..." : "방장 위임"}
               </button>
             </footer>
           </section>

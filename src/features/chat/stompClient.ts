@@ -1,9 +1,9 @@
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { webSocketUrl } from "../../shared/config/env";
-import type { ChatMessage } from "./api";
+import type { ChatMessageEvent } from "./api";
 
-export type { ChatMessage } from "./api";
+export type { ChatMessageEvent } from "./api";
 
 interface ChatMessageRequest {
   content: string;
@@ -12,18 +12,20 @@ interface ChatMessageRequest {
 
 interface ConnectOptions {
   accessToken: string;
-  onMessage: (message: ChatMessage) => void;
+  onMessage: (event: ChatMessageEvent) => void;
   onStatusChange: (connected: boolean) => void;
+  onReconnect: () => void;
   onError: (message: string) => void;
 }
 
 export function connectChat(options: ConnectOptions) {
   const subscribedRoomIds = new Set<number>();
   const subscriptions = new Map<number, StompSubscription>();
+  let hasConnectedOnce = false;
 
   const receive = (frame: IMessage) => {
     try {
-      options.onMessage(JSON.parse(frame.body) as ChatMessage);
+      options.onMessage(JSON.parse(frame.body) as ChatMessageEvent);
     } catch {
       options.onError("수신한 메시지를 읽을 수 없습니다.");
     }
@@ -47,9 +49,16 @@ export function connectChat(options: ConnectOptions) {
     heartbeatIncoming: 10000,
     heartbeatOutgoing: 10000,
     onConnect: () => {
+      const reconnected = hasConnectedOnce;
+      hasConnectedOnce = true;
+
       subscriptions.clear();
       subscribedRoomIds.forEach(subscribe);
       options.onStatusChange(true);
+
+      if (reconnected) {
+        options.onReconnect();
+      }
     },
     onDisconnect: () => options.onStatusChange(false),
     onWebSocketClose: () => {
