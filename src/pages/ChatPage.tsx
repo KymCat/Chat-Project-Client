@@ -15,6 +15,7 @@ import {
   chatRoomApi,
   type ChatMessage,
   type ChatMessageEvent,
+  type ChatRoomEvent,
   type ChatRoomMemberResponse,
   type ChatRoomResponse,
   type GroupChatRoomResponse,
@@ -34,6 +35,11 @@ interface PendingHistoryScroll {
   roomId: number;
   scrollHeight: number;
   scrollTop: number;
+}
+
+interface DeletedRoomNotice {
+  roomId: number;
+  roomName: string;
 }
 
 const messageTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
@@ -119,6 +125,15 @@ export function ChatPage() {
     useState<ChatRoomMemberResponse | null>(null);
   const [isTransferringOwnership, setIsTransferringOwnership] = useState(false);
   const [ownerTransferError, setOwnerTransferError] = useState("");
+  const [renameTargetRoom, setRenameTargetRoom] = useState<ChatRoomResponse | null>(null);
+  const [updatedRoomName, setUpdatedRoomName] = useState("");
+  const [isUpdatingRoomName, setIsUpdatingRoomName] = useState(false);
+  const [roomNameUpdateError, setRoomNameUpdateError] = useState("");
+  const [deleteTargetRoom, setDeleteTargetRoom] = useState<ChatRoomResponse | null>(null);
+  const [isDeletingRoom, setIsDeletingRoom] = useState(false);
+  const [deleteRoomError, setDeleteRoomError] = useState("");
+  const [deletedRoomNotice, setDeletedRoomNotice] = useState<DeletedRoomNotice | null>(null);
+  const [roomEventToast, setRoomEventToast] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
@@ -142,6 +157,7 @@ export function ChatPage() {
   const nickname = claims?.sub ? `member-${claims.sub}` : "member";
   const emailVerified = claims?.email_verified === true;
   const activeRoom = rooms.find((room) => room.roomId === activeRoomId) ?? null;
+  const isActiveRoomDeleted = deletedRoomNotice?.roomId === activeRoomId;
   const messages = useMemo(
     () => activeRoomId === null ? [] : messagesByRoom[activeRoomId] ?? [],
     [activeRoomId, messagesByRoom],
@@ -214,6 +230,22 @@ export function ChatPage() {
         lastReadRequestByRoomRef.current.delete(roomId);
       }
     }
+  }, []);
+
+  const removeRoomState = useCallback((roomId: number) => {
+    setRooms((current) => current.filter((room) => room.roomId !== roomId));
+    setMessagesByRoom((current) => {
+      const next = { ...current };
+      delete next[roomId];
+      return next;
+    });
+    setMessagePagesByRoom((current) => {
+      const next = { ...current };
+      delete next[roomId];
+      return next;
+    });
+    latestMessageIdByRoomRef.current.delete(roomId);
+    lastReadRequestByRoomRef.current.delete(roomId);
   }, []);
 
   const loadRooms = useCallback(async (preferredRoomId?: number) => {
@@ -435,6 +467,34 @@ export function ChatPage() {
           void markRoomAsRead(receivedMessage.roomId, receivedMessage.messageId);
         }
       },
+      onRoomEvent: (event: ChatRoomEvent) => {
+        if (event.eventType === "UPDATED" && event.name !== null) {
+          setRooms((current) => current.map((room) =>
+            room.roomId === event.roomId
+              ? { ...room, name: event.name }
+              : room,
+          ));
+          return;
+        }
+
+        if (event.eventType !== "DELETED") return;
+
+        const roomName = event.name ?? "채팅방";
+        if (activeRoomIdRef.current === event.roomId) {
+          setIsMemberListOpen(false);
+          setIsRoomMenuOpen(false);
+          setLeaveTargetRoom(null);
+          setOwnerTransferTarget(null);
+          setRenameTargetRoom(null);
+          setDeleteTargetRoom(null);
+          setMessage("");
+          setDeletedRoomNotice({ roomId: event.roomId, roomName });
+          return;
+        }
+
+        removeRoomState(event.roomId);
+        setRoomEventToast(`'${roomName}' 채팅방이 삭제되었습니다.`);
+      },
       onStatusChange: setIsConnected,
       onReconnect: () => {
         void recoverAfterReconnect();
@@ -452,8 +512,16 @@ export function ChatPage() {
     isViewingRoomAtBottom,
     markRoomAsRead,
     memberId,
+    removeRoomState,
     recoverAfterReconnect,
   ]);
+
+  useEffect(() => {
+    if (!roomEventToast) return;
+
+    const timeoutId = window.setTimeout(() => setRoomEventToast(""), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [roomEventToast]);
 
   useEffect(() => {
     chatRef.current?.syncSubscriptions(
@@ -746,6 +814,114 @@ export function ChatPage() {
 
     setLeaveRoomError("");
     setLeaveTargetRoom(null);
+  };
+
+  const handleOpenRoomNameUpdateModal = () => {
+    if (!activeRoom || activeRoom.role !== "OWNER") return;
+
+    setIsRoomMenuOpen(false);
+    setUpdatedRoomName(activeRoom.name ?? "");
+    setRoomNameUpdateError("");
+    setRenameTargetRoom(activeRoom);
+  };
+
+  const handleCloseRoomNameUpdateModal = () => {
+    if (isUpdatingRoomName) return;
+
+    setRenameTargetRoom(null);
+    setUpdatedRoomName("");
+    setRoomNameUpdateError("");
+  };
+
+  const handleUpdateRoomName = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!renameTargetRoom || isUpdatingRoomName) return;
+
+    const normalizedName = updatedRoomName.trim();
+    if (!normalizedName || normalizedName.length > 30) {
+      setRoomNameUpdateError("채팅방 이름은 1자 이상 30자 이하여야 합니다.");
+      return;
+    }
+
+    setIsUpdatingRoomName(true);
+    setRoomNameUpdateError("");
+
+    try {
+      await chatRoomApi.updateName(renameTargetRoom.roomId, {
+        name: normalizedName,
+      });
+      setRooms((current) => current.map((room) =>
+        room.roomId === renameTargetRoom.roomId
+          ? { ...room, name: normalizedName }
+          : room,
+      ));
+      setRenameTargetRoom(null);
+      setUpdatedRoomName("");
+    } catch (updateError) {
+      setRoomNameUpdateError(
+        updateError instanceof Error
+          ? updateError.message
+          : "채팅방 이름을 변경하지 못했습니다.",
+      );
+    } finally {
+      setIsUpdatingRoomName(false);
+    }
+  };
+
+  const handleOpenDeleteRoomModal = () => {
+    if (!activeRoom || activeRoom.role !== "OWNER" || isActiveRoomDeleted) return;
+
+    setIsRoomMenuOpen(false);
+    setDeleteRoomError("");
+    setDeleteTargetRoom(activeRoom);
+  };
+
+  const handleCloseDeleteRoomModal = () => {
+    if (isDeletingRoom) return;
+
+    setDeleteTargetRoom(null);
+    setDeleteRoomError("");
+  };
+
+  const handleDeleteRoom = async () => {
+    if (!deleteTargetRoom || isDeletingRoom) return;
+
+    setIsDeletingRoom(true);
+    setDeleteRoomError("");
+
+    try {
+      await chatRoomApi.deleteRoom(deleteTargetRoom.roomId);
+      setDeletedRoomNotice({
+        roomId: deleteTargetRoom.roomId,
+        roomName: deleteTargetRoom.name ?? "채팅방",
+      });
+      setDeleteTargetRoom(null);
+      setMessage("");
+    } catch (deleteError) {
+      setDeleteRoomError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "채팅방을 삭제하지 못했습니다.",
+      );
+    } finally {
+      setIsDeletingRoom(false);
+    }
+  };
+
+  const handleConfirmDeletedRoom = () => {
+    if (!deletedRoomNotice) return;
+
+    const roomId = deletedRoomNotice.roomId;
+    removeRoomState(roomId);
+    if (activeRoomIdRef.current === roomId) {
+      activeRoomIdRef.current = null;
+      setActiveRoomId(null);
+      setRoomMembers([]);
+      setMemberListError("");
+      setMessage("");
+      setError("");
+    }
+    setDeletedRoomNotice(null);
   };
 
   const handleLeaveRoom = async () => {
@@ -1241,7 +1417,7 @@ export function ChatPage() {
                 className="room-menu-button"
                 type="button"
                 onClick={handleToggleRoomMenu}
-                disabled={!activeRoom}
+                disabled={!activeRoom || isActiveRoomDeleted}
                 aria-expanded={isRoomMenuOpen}
                 aria-controls="chat-room-menu"
                 aria-label="채팅방 메뉴"
@@ -1258,6 +1434,42 @@ export function ChatPage() {
 
               {isRoomMenuOpen && activeRoom && (
                 <div className="room-menu-dropdown" id="chat-room-menu">
+                  {activeRoom.role === "OWNER" && (
+                    <>
+                      <button
+                        className="room-name-update-button"
+                        type="button"
+                        onClick={handleOpenRoomNameUpdateModal}
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                          <path
+                            d="m4 13.5-.5 3 3-.5L15 7.5 12.5 5 4 13.5ZM11.5 6l2.5 2.5"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        채팅방 이름 변경
+                      </button>
+                      <button
+                        className="delete-room-button"
+                        type="button"
+                        onClick={handleOpenDeleteRoomModal}
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                          <path
+                            d="M4.5 6h11M8 3.5h4M6.5 6l.6 10h5.8l.6-10M8.5 8.5v5M11.5 8.5v5"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        채팅방 삭제
+                      </button>
+                    </>
+                  )}
                   <button
                     className="leave-chat-button"
                     type="button"
@@ -1494,11 +1706,16 @@ export function ChatPage() {
                   ? `#${activeRoom.name ?? "Direct"}에 메시지 보내기`
                   : "채팅방을 선택해주세요"
               }
-              disabled={!activeRoom || !isConnected}
+              disabled={!activeRoom || !isConnected || isActiveRoomDeleted}
             />
             <button
               type="submit"
-              disabled={!activeRoom || !isConnected || !message.trim()}
+              disabled={
+                !activeRoom
+                || !isConnected
+                || isActiveRoomDeleted
+                || !message.trim()
+              }
               aria-label="메시지 보내기"
             >
               <svg
@@ -1587,6 +1804,150 @@ export function ChatPage() {
               </footer>
             </form>
           </section>
+        </div>
+      )}
+
+      {renameTargetRoom && (
+        <div className="create-room-modal" role="presentation">
+          <section
+            className="create-room-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="update-room-name-title"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">EDIT CHANNEL</p>
+                <h2 id="update-room-name-title">채팅방 이름 변경</h2>
+              </div>
+              <button
+                className="close-create-room-button"
+                type="button"
+                onClick={handleCloseRoomNameUpdateModal}
+                disabled={isUpdatingRoomName}
+                aria-label="채팅방 이름 변경 닫기"
+              >
+                ×
+              </button>
+            </header>
+
+            <form className="room-create-form" onSubmit={handleUpdateRoomName}>
+              <label htmlFor="updated-room-name">채팅방 이름</label>
+              <div>
+                <input
+                  id="updated-room-name"
+                  value={updatedRoomName}
+                  onChange={(event) => setUpdatedRoomName(event.target.value)}
+                  placeholder="1~30자로 입력해주세요"
+                  maxLength={30}
+                  autoFocus
+                  disabled={isUpdatingRoomName}
+                />
+              </div>
+              {roomNameUpdateError && (
+                <p className="room-create-error" role="alert">
+                  {roomNameUpdateError}
+                </p>
+              )}
+              <footer>
+                <button
+                  className="cancel-create-room-button"
+                  type="button"
+                  onClick={handleCloseRoomNameUpdateModal}
+                  disabled={isUpdatingRoomName}
+                >
+                  취소
+                </button>
+                <button
+                  className="submit-create-room-button"
+                  type="submit"
+                  disabled={isUpdatingRoomName || !updatedRoomName.trim()}
+                >
+                  {isUpdatingRoomName ? "변경 중..." : "이름 변경"}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {deleteTargetRoom && (
+        <div className="leave-room-modal" role="presentation">
+          <section
+            className="leave-room-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-room-dialog-title"
+          >
+            <span className="leave-room-symbol" aria-hidden="true">×</span>
+            <p className="eyebrow">DELETE CHANNEL</p>
+            <h2 id="delete-room-dialog-title">
+              {deleteTargetRoom.name ?? "채팅방"}을 삭제하시겠습니까?
+            </h2>
+            <p className="leave-room-description">
+              참여 중인 모든 멤버에게 채팅방이 삭제되며,<br />
+              더 이상 메시지를 조회하거나 전송할 수 없습니다.
+            </p>
+
+            {deleteRoomError && (
+              <p className="leave-room-error" role="alert">{deleteRoomError}</p>
+            )}
+
+            <footer>
+              <button
+                className="cancel-leave-room-button"
+                type="button"
+                onClick={handleCloseDeleteRoomModal}
+                disabled={isDeletingRoom}
+              >
+                취소
+              </button>
+              <button
+                className="confirm-leave-room-button"
+                type="button"
+                onClick={() => void handleDeleteRoom()}
+                disabled={isDeletingRoom}
+              >
+                {isDeletingRoom ? "삭제 중..." : "채팅방 삭제"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {deletedRoomNotice && (
+        <div className="leave-room-modal" role="presentation">
+          <section
+            className="leave-room-dialog deleted-room-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deleted-room-dialog-title"
+          >
+            <span className="leave-room-symbol" aria-hidden="true">×</span>
+            <p className="eyebrow">CHANNEL DELETED</p>
+            <h2 id="deleted-room-dialog-title">
+              {deletedRoomNotice.roomName} 채팅방이 삭제되었습니다.
+            </h2>
+            <p className="leave-room-description">
+              더 이상 이 채팅방에서 메시지를 보내거나 조회할 수 없습니다.
+            </p>
+            <footer>
+              <button
+                className="confirm-leave-room-button"
+                type="button"
+                onClick={handleConfirmDeletedRoom}
+                autoFocus
+              >
+                확인
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {roomEventToast && (
+        <div className="room-event-toast" role="status">
+          {roomEventToast}
         </div>
       )}
 

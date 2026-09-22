@@ -1,9 +1,9 @@
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { webSocketUrl } from "../../shared/config/env";
-import type { ChatMessageEvent } from "./api";
+import type { ChatMessageEvent, ChatRoomEvent } from "./api";
 
-export type { ChatMessageEvent } from "./api";
+export type { ChatMessageEvent, ChatRoomEvent } from "./api";
 
 interface ChatMessageRequest {
   content: string;
@@ -13,6 +13,7 @@ interface ChatMessageRequest {
 interface ConnectOptions {
   accessToken: string;
   onMessage: (event: ChatMessageEvent) => void;
+  onRoomEvent: (event: ChatRoomEvent) => void;
   onStatusChange: (connected: boolean) => void;
   onReconnect: () => void;
   onError: (message: string) => void;
@@ -20,7 +21,8 @@ interface ConnectOptions {
 
 export function connectChat(options: ConnectOptions) {
   const subscribedRoomIds = new Set<number>();
-  const subscriptions = new Map<number, StompSubscription>();
+  const messageSubscriptions = new Map<number, StompSubscription>();
+  const roomSubscriptions = new Map<number, StompSubscription>();
   let hasConnectedOnce = false;
 
   const receive = (frame: IMessage) => {
@@ -31,12 +33,24 @@ export function connectChat(options: ConnectOptions) {
     }
   };
 
-  const subscribe = (roomId: number) => {
-    if (!client.connected || subscriptions.has(roomId)) return;
+  const receiveRoomEvent = (frame: IMessage) => {
+    try {
+      options.onRoomEvent(JSON.parse(frame.body) as ChatRoomEvent);
+    } catch {
+      options.onError("수신한 채팅방 정보를 읽을 수 없습니다.");
+    }
+  };
 
-    subscriptions.set(
+  const subscribe = (roomId: number) => {
+    if (!client.connected || messageSubscriptions.has(roomId)) return;
+
+    messageSubscriptions.set(
       roomId,
       client.subscribe(`/sub/msg/${roomId}`, receive),
+    );
+    roomSubscriptions.set(
+      roomId,
+      client.subscribe(`/sub/chat-rooms/${roomId}`, receiveRoomEvent),
     );
   };
 
@@ -52,7 +66,8 @@ export function connectChat(options: ConnectOptions) {
       const reconnected = hasConnectedOnce;
       hasConnectedOnce = true;
 
-      subscriptions.clear();
+      messageSubscriptions.clear();
+      roomSubscriptions.clear();
       subscribedRoomIds.forEach(subscribe);
       options.onStatusChange(true);
 
@@ -62,7 +77,8 @@ export function connectChat(options: ConnectOptions) {
     },
     onDisconnect: () => options.onStatusChange(false),
     onWebSocketClose: () => {
-      subscriptions.clear();
+      messageSubscriptions.clear();
+      roomSubscriptions.clear();
       options.onStatusChange(false);
     },
     onStompError: () => options.onError("채팅 서버 연결에 실패했습니다."),
@@ -77,8 +93,10 @@ export function connectChat(options: ConnectOptions) {
       subscribedRoomIds.forEach((roomId) => {
         if (nextRoomIds.has(roomId)) return;
 
-        subscriptions.get(roomId)?.unsubscribe();
-        subscriptions.delete(roomId);
+        messageSubscriptions.get(roomId)?.unsubscribe();
+        roomSubscriptions.get(roomId)?.unsubscribe();
+        messageSubscriptions.delete(roomId);
+        roomSubscriptions.delete(roomId);
         subscribedRoomIds.delete(roomId);
       });
 
@@ -101,8 +119,10 @@ export function connectChat(options: ConnectOptions) {
       });
     },
     disconnect() {
-      subscriptions.forEach((subscription) => subscription.unsubscribe());
-      subscriptions.clear();
+      messageSubscriptions.forEach((subscription) => subscription.unsubscribe());
+      roomSubscriptions.forEach((subscription) => subscription.unsubscribe());
+      messageSubscriptions.clear();
+      roomSubscriptions.clear();
       subscribedRoomIds.clear();
       void client.deactivate();
     },

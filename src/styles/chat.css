@@ -696,7 +696,9 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
-.leave-chat-button {
+.leave-chat-button,
+.room-name-update-button,
+.delete-room-button {
   display: flex;
   height: 34px;
   padding: 0 12px;
@@ -710,7 +712,9 @@
   font-weight: 700;
 }
 
-.leave-chat-button:hover:not(:disabled) {
+.leave-chat-button:hover:not(:disabled),
+.room-name-update-button:hover:not(:disabled),
+.delete-room-button:hover:not(:disabled) {
   color: #f5f5f7;
   background: rgba(255, 255, 255, 0.06);
 }
@@ -720,7 +724,9 @@
   opacity: 0.36;
 }
 
-.leave-chat-button svg {
+.leave-chat-button svg,
+.room-name-update-button svg,
+.delete-room-button svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
@@ -1541,7 +1547,9 @@
   font-weight: 600;
 }
 
-.room-menu-dropdown .leave-chat-button {
+.room-menu-dropdown .leave-chat-button,
+.room-menu-dropdown .room-name-update-button,
+.room-menu-dropdown .delete-room-button {
   width: 100%;
   height: 38px;
   padding: 0 11px;
@@ -1755,6 +1763,27 @@
 .leave-room-dialog footer button:disabled {
   cursor: default;
   opacity: 0.42;
+}
+
+.deleted-room-dialog footer {
+  grid-template-columns: 1fr;
+}
+
+.room-event-toast {
+  position: fixed;
+  z-index: 120;
+  top: 22px;
+  right: 22px;
+  max-width: min(380px, calc(100vw - 44px));
+  padding: 13px 16px;
+  border: 1px solid rgba(57, 216, 230, 0.24);
+  border-radius: 12px;
+  color: #e8e8eb;
+  background: #202024;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.38);
+  font-size: 13px;
+  font-weight: 600;
+  animation: create-room-dialog-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .owner-transfer-modal {
@@ -2025,7 +2054,8 @@
   .join-room-modal,
   .join-room-dialog,
   .leave-room-modal,
-  .leave-room-dialog {
+  .leave-room-dialog,
+  .room-event-toast {
     animation: none;
   }
 }

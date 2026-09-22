@@ -36,6 +36,10 @@ export interface ChatRoomOwnerTransferRequest {
   newOwnerMemberId: number;
 }
 
+export interface ChatRoomNameUpdateRequest {
+  name: string;
+}
+
 export interface ChatMessage {
   messageId: number;
   roomId: number;
@@ -53,6 +57,12 @@ export type ChatMessageEventType = "CREATED" | "UPDATED" | "DELETED";
 export interface ChatMessageEvent {
   eventType: ChatMessageEventType;
   message: ChatMessage;
+}
+
+export interface ChatRoomEvent {
+  eventType: "UPDATED" | "DELETED";
+  roomId: number;
+  name: string | null;
 }
 
 export interface CursorPageResponse<T> {
@@ -77,6 +87,10 @@ export const chatRoomApi = {
     roomId: number,
     request: ChatRoomOwnerTransferRequest,
   ) => httpClient.patch<void>(`/chat-rooms/${roomId}/owner`, request),
+  updateName: (roomId: number, request: ChatRoomNameUpdateRequest) =>
+    httpClient.patch<void>(`/chat-rooms/${roomId}`, request),
+  deleteRoom: (roomId: number) =>
+    httpClient.delete<void>(`/chat-rooms/${roomId}`),
   updateReadPosition: (roomId: number, lastReadMessageId: number) =>
     httpClient.patch<void>(`/chat-rooms/${roomId}/read-position`, {
       lastReadMessageId,
