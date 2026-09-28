@@ -1,5 +1,6 @@
 import {
   Fragment,
+  type ChangeEvent,
   type FormEvent,
   useCallback,
   useEffect,
@@ -11,6 +12,7 @@ import {
 import "../styles/chat.css";
 import { useAuth } from "../app/AuthProvider";
 import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
+import { AttachmentMessageContent } from "../features/chat/AttachmentMessageContent";
 import {
   chatRoomApi,
   type ChatMessage,
@@ -42,6 +44,12 @@ interface DeletedRoomNotice {
   roomName: string;
 }
 
+interface PendingAttachment {
+  roomId: number;
+  file: File;
+  previewUrl: string | null;
+}
+
 const messageTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
   hour: "2-digit",
   minute: "2-digit",
@@ -61,6 +69,12 @@ function formatMessageTime(createdAt: string) {
 
 function formatMessageDate(createdAt: string) {
   return messageDateFormatter.format(new Date(createdAt));
+}
+
+function formatSelectedFileSize(sizeBytes: number) {
+  if (sizeBytes < 1_024) return `${sizeBytes} B`;
+  if (sizeBytes < 1_048_576) return `${(sizeBytes / 1_024).toFixed(1)} KB`;
+  return `${(sizeBytes / 1_048_576).toFixed(1)} MB`;
 }
 
 function isSameMessageDate(left: string, right: string) {
@@ -105,6 +119,9 @@ export function ChatPage() {
   const [messagesByRoom, setMessagesByRoom] = useState<Record<number, ChatMessage[]>>({});
   const [messagePagesByRoom, setMessagePagesByRoom] = useState<Record<number, MessagePageState>>({});
   const [message, setMessage] = useState("");
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [pendingAttachment, setPendingAttachment] =
+    useState<PendingAttachment | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<number | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editingMessageContent, setEditingMessageContent] = useState("");
@@ -137,6 +154,7 @@ export function ChatPage() {
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const loadingMessageRoomIdsRef = useRef(new Set<number>());
   const pendingHistoryScrollRef = useRef<PendingHistoryScroll | null>(null);
   const shouldScrollToBottomRef = useRef(true);
@@ -189,6 +207,13 @@ export function ChatPage() {
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
   }, [isChatOpen]);
+
+  useEffect(() => {
+    const previewUrl = pendingAttachment?.previewUrl;
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [pendingAttachment]);
 
   const isViewingRoomAtBottom = useCallback((roomId: number) => {
     const messageList = messageListRef.current;
@@ -627,6 +652,62 @@ export function ChatPage() {
       setError("");
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "메시지 전송에 실패했습니다.");
+    }
+  };
+
+  const handleAttachmentSelection = (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    const roomId = activeRoomId;
+    input.value = "";
+    if (!file || roomId === null || isUploadingAttachment) return;
+
+    setPendingAttachment({
+      roomId,
+      file,
+      previewUrl: file.type.startsWith("image/")
+        ? URL.createObjectURL(file)
+        : null,
+    });
+    setError("");
+  };
+
+  const handleCloseAttachmentConfirmation = () => {
+    if (isUploadingAttachment) return;
+    setPendingAttachment(null);
+  };
+
+  const handleConfirmAttachment = async () => {
+    if (!pendingAttachment || isUploadingAttachment) return;
+
+    setIsUploadingAttachment(true);
+    setError("");
+
+    try {
+      const response = await chatRoomApi.uploadAttachment(
+        pendingAttachment.roomId,
+        pendingAttachment.file,
+      );
+      const connection = chatRef.current;
+      if (!connection) {
+        throw new Error("채팅 서버에 연결되어 있지 않습니다.");
+      }
+
+      connection.sendAttachment(
+        pendingAttachment.roomId,
+        response.attachmentId,
+      );
+      setPendingAttachment(null);
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "첨부파일을 전송하지 못했습니다.",
+      );
+    } finally {
+      setIsUploadingAttachment(false);
     }
   };
 
@@ -1682,10 +1763,27 @@ export function ChatPage() {
                       )}
                     </div>
                   </article>
-                ) : (
+                ) : item.type === "SYSTEM" ? (
                   <p className="system-message">
                     <span /> {item.deleted ? "삭제된 메시지입니다." : item.content}
                   </p>
+                ) : (
+                  <article
+                    className={item.senderId === memberId ? "message own" : "message"}
+                  >
+                    <span className="message-avatar">
+                      {item.senderNickname?.slice(-2).toUpperCase() ?? "!"}
+                    </span>
+                    <div className="message-content">
+                      <strong>{item.senderNickname ?? "알 수 없는 사용자"}</strong>
+                      <div className="message-bubble-row attachment-message-row">
+                        <AttachmentMessageContent message={item} />
+                        <time dateTime={item.createdAt}>
+                          {formatMessageTime(item.createdAt)}
+                        </time>
+                      </div>
+                    </div>
+                  </article>
                 )}
               </Fragment>
             );
@@ -1696,6 +1794,42 @@ export function ChatPage() {
         <footer className="composer-area">
           {error && <p className="chat-error" role="alert">{error}</p>}
           <form className="message-composer" onSubmit={handleSend}>
+            <input
+              ref={attachmentInputRef}
+              className="attachment-file-input"
+              type="file"
+              accept=".jpg,.jpeg,.png,.gif,.pdf,.txt,.zip,.docx,.xlsx,.pptx"
+              onChange={(event) => void handleAttachmentSelection(event)}
+              disabled={
+                !activeRoom
+                || !isConnected
+                || isActiveRoomDeleted
+                || isUploadingAttachment
+              }
+            />
+            <button
+              className="attachment-upload-button"
+              type="button"
+              onClick={() => attachmentInputRef.current?.click()}
+              disabled={
+                !activeRoom
+                || !isConnected
+                || isActiveRoomDeleted
+                || isUploadingAttachment
+              }
+              aria-label="첨부파일 보내기"
+              title={isUploadingAttachment ? "업로드 중..." : "첨부파일 보내기"}
+            >
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="m8.5 12.5 6.9-6.9a3.2 3.2 0 0 1 4.5 4.5l-9.4 9.4a5 5 0 0 1-7.1-7.1l9-9"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
             <label className="sr-only" htmlFor="message">메시지</label>
             <input
               id="message"
@@ -1709,6 +1843,7 @@ export function ChatPage() {
               disabled={!activeRoom || !isConnected || isActiveRoomDeleted}
             />
             <button
+              className="send-message-button"
               type="submit"
               disabled={
                 !activeRoom
@@ -1742,6 +1877,95 @@ export function ChatPage() {
           </form>
         </footer>
       </section>
+
+      {pendingAttachment && (
+        <div
+          className="attachment-preview-modal"
+          role="presentation"
+          onClick={handleCloseAttachmentConfirmation}
+        >
+          <section
+            className="attachment-preview-dialog attachment-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="attachment-confirm-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <p className="eyebrow">SEND ATTACHMENT</p>
+                <strong id="attachment-confirm-title">
+                  이 파일을 보내시겠습니까?
+                </strong>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseAttachmentConfirmation}
+                disabled={isUploadingAttachment}
+                aria-label="첨부파일 전송 취소"
+              >
+                ×
+              </button>
+            </header>
+
+            {pendingAttachment.previewUrl ? (
+              <div className="attachment-preview-image attachment-confirm-image">
+                <img
+                  src={pendingAttachment.previewUrl}
+                  alt={pendingAttachment.file.name}
+                />
+              </div>
+            ) : (
+              <div className="attachment-confirm-file">
+                <span className="attachment-file-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M7 3h7l4 4v14H7V3Zm7 0v5h5"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <div>
+                  <strong>{pendingAttachment.file.name}</strong>
+                  <small>{formatSelectedFileSize(pendingAttachment.file.size)}</small>
+                </div>
+              </div>
+            )}
+
+            {pendingAttachment.previewUrl && (
+              <div className="attachment-confirm-info">
+                <strong>{pendingAttachment.file.name}</strong>
+                <span>{formatSelectedFileSize(pendingAttachment.file.size)}</span>
+              </div>
+            )}
+
+            {error && (
+              <p className="attachment-confirm-error" role="alert">{error}</p>
+            )}
+
+            <footer className="attachment-confirm-actions">
+              <button
+                className="attachment-confirm-cancel"
+                type="button"
+                onClick={handleCloseAttachmentConfirmation}
+                disabled={isUploadingAttachment}
+              >
+                취소
+              </button>
+              <button
+                className="attachment-confirm-send"
+                type="button"
+                onClick={() => void handleConfirmAttachment()}
+                disabled={isUploadingAttachment}
+              >
+                {isUploadingAttachment ? "보내는 중..." : "보내기"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {isCreateRoomModalOpen && (
         <div className="create-room-modal" role="presentation">

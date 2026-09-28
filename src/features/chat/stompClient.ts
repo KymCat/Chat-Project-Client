@@ -10,6 +10,11 @@ interface ChatMessageRequest {
   roomId: number;
 }
 
+interface ChatAttachmentMessageRequest {
+  roomId: number;
+  attachmentId: number;
+}
+
 interface ConnectOptions {
   accessToken: string;
   onMessage: (event: ChatMessageEvent) => void;
@@ -116,6 +121,19 @@ export function connectChat(options: ConnectOptions) {
           content,
           roomId,
         } satisfies ChatMessageRequest),
+      });
+    },
+    sendAttachment(roomId: number, attachmentId: number) {
+      if (!client.connected) {
+        throw new Error("채팅 서버에 연결되어 있지 않습니다.");
+      }
+
+      client.publish({
+        destination: "/pub/msg/attachment",
+        body: JSON.stringify({
+          roomId,
+          attachmentId,
+        } satisfies ChatAttachmentMessageRequest),
       });
     },
     disconnect() {

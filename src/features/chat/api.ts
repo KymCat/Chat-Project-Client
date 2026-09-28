@@ -40,6 +40,17 @@ export interface ChatRoomNameUpdateRequest {
   name: string;
 }
 
+export interface AttachmentResponse {
+  attachmentId: number;
+  originalName: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
+export interface AttachmentUploadResponse extends AttachmentResponse {
+  messageType: "IMAGE" | "FILE";
+}
+
 export interface ChatMessage {
   messageId: number;
   roomId: number;
@@ -47,6 +58,7 @@ export interface ChatMessage {
   senderNickname: string | null;
   type: "TEXT" | "IMAGE" | "FILE" | "SYSTEM";
   content: string | null;
+  attachment: AttachmentResponse | null;
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
@@ -91,6 +103,19 @@ export const chatRoomApi = {
     httpClient.patch<void>(`/chat-rooms/${roomId}`, request),
   deleteRoom: (roomId: number) =>
     httpClient.delete<void>(`/chat-rooms/${roomId}`),
+  uploadAttachment: (roomId: number, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    return httpClient.postForm<AttachmentUploadResponse>(
+      `/chat-rooms/${roomId}/attachments`,
+      formData,
+    );
+  },
+  downloadAttachment: (roomId: number, attachmentId: number) =>
+    httpClient.getBlob(
+      `/chat-rooms/${roomId}/attachments/${attachmentId}`,
+    ),
   updateReadPosition: (roomId: number, lastReadMessageId: number) =>
     httpClient.patch<void>(`/chat-rooms/${roomId}/read-position`, {
       lastReadMessageId,

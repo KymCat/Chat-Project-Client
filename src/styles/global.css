@@ -1440,7 +1440,7 @@ a {
 .message-composer {
   display: grid;
   min-height: 62px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   border: 1px solid var(--line);
   border-radius: 20px;
   background: var(--surface);
@@ -1463,7 +1463,8 @@ a {
 .message-composer input::placeholder { color: #71717a; }
 
 .message-composer button {
-  min-width: 118px;
+  width: 42px;
+  min-width: 42px;
   margin: 7px;
   border: 0;
   border-radius: 14px;
@@ -1604,7 +1605,7 @@ a {
   .composer-area { padding: 10px 14px 16px; }
   .message-composer { min-height: 56px; }
   .message-composer input { padding: 0 14px; }
-  .message-composer button { min-width: 72px; }
+  .message-composer button { width: 42px; min-width: 42px; }
   .message-composer button span { display: none; }
 }
 

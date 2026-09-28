@@ -912,6 +912,367 @@
   white-space: nowrap;
 }
 
+.attachment-message-row {
+  margin-top: 6px;
+}
+
+.attachment-content {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  background: #25252b;
+}
+
+.image-attachment-content {
+  width: min(380px, 48vw);
+}
+
+.attachment-image-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: #151518;
+  cursor: zoom-in;
+}
+
+.attachment-image-button img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.attachment-image-placeholder {
+  display: grid;
+  min-height: 170px;
+  padding: 24px;
+  place-items: center;
+  color: #85858f;
+  background: #202024;
+  font-size: 12px;
+  text-align: center;
+}
+
+.image-attachment-content > span {
+  display: block;
+  padding: 9px 12px;
+  overflow: hidden;
+  color: #aaaab3;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-attachment-content {
+  position: relative;
+  display: grid;
+  width: min(390px, 52vw);
+  min-height: 72px;
+  padding: 12px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+}
+
+.attachment-file-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 11px;
+  color: #39d8e6;
+  background: rgba(57, 216, 230, 0.09);
+}
+
+.attachment-file-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.attachment-file-info {
+  min-width: 0;
+  text-align: left;
+}
+
+.attachment-file-info strong,
+.attachment-file-info small {
+  display: block;
+}
+
+.attachment-file-info strong {
+  overflow: hidden;
+  color: #ececef;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-file-info small {
+  margin-top: 4px;
+  color: #7f7f89;
+  font-size: 10px;
+}
+
+.attachment-download-button {
+  min-width: auto;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  color: #b8edf1;
+  background: rgba(57, 216, 230, 0.08);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.attachment-download-button:hover:not(:disabled) {
+  color: #e6fdff;
+  background: rgba(57, 216, 230, 0.14);
+}
+
+.attachment-load-error {
+  grid-column: 2 / -1;
+  color: #ff8aa8;
+  font-size: 10px;
+  text-align: left;
+}
+
+.attachment-preview-modal {
+  position: fixed;
+  z-index: 150;
+  inset: 0;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: rgba(6, 6, 8, 0.88);
+  backdrop-filter: blur(8px);
+  animation: create-room-modal-enter 160ms ease-out;
+}
+
+.attachment-preview-dialog {
+  display: flex;
+  width: min(960px, 92vw);
+  max-height: 92vh;
+  padding: 16px;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: #18181c;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
+  animation: create-room-dialog-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.attachment-preview-dialog > header,
+.attachment-preview-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.attachment-preview-dialog > header {
+  padding: 0 2px 13px;
+}
+
+.attachment-preview-dialog > header strong {
+  overflow: hidden;
+  color: #eeeeF1;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview-dialog > header button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  color: #a4a4ae;
+  background: #292930;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.attachment-preview-image {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 11px;
+  background: #101012;
+}
+
+.attachment-preview-image img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(92vh - 132px);
+  object-fit: contain;
+}
+
+.attachment-preview-dialog > footer {
+  padding: 13px 2px 0;
+}
+
+.attachment-preview-dialog > footer span {
+  color: #85858f;
+  font-size: 11px;
+}
+
+.attachment-preview-dialog > footer button {
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  color: #101012;
+  background: #39d8e6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.attachment-preview-dialog > p {
+  width: auto;
+  max-width: none;
+  margin: 10px 2px 0;
+  padding: 0;
+  border: 0;
+  color: #ff8aa8;
+  background: transparent;
+  font-size: 11px;
+  text-align: right;
+}
+
+.attachment-confirm-dialog {
+  width: min(560px, 92vw);
+  max-height: 90vh;
+  padding: 18px;
+}
+
+.attachment-confirm-dialog > header {
+  align-items: flex-start;
+}
+
+.attachment-confirm-dialog > header > div {
+  min-width: 0;
+  text-align: left;
+}
+
+.attachment-confirm-dialog > header .eyebrow {
+  margin: 0 0 5px;
+  color: #39d8e6;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.attachment-confirm-dialog > header strong {
+  display: block;
+  color: #f0f0f2;
+  font-size: 18px;
+}
+
+.attachment-confirm-image {
+  max-height: 56vh;
+}
+
+.attachment-confirm-image img {
+  max-height: 56vh;
+}
+
+.attachment-confirm-file {
+  display: flex;
+  min-height: 92px;
+  padding: 18px;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  background: #222228;
+}
+
+.attachment-confirm-file > div {
+  min-width: 0;
+  text-align: left;
+}
+
+.attachment-confirm-file strong,
+.attachment-confirm-file small {
+  display: block;
+}
+
+.attachment-confirm-file strong {
+  overflow: hidden;
+  color: #ececef;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-confirm-file small {
+  margin-top: 5px;
+  color: #85858f;
+  font-size: 11px;
+}
+
+.attachment-confirm-info {
+  display: flex;
+  padding: 12px 2px 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.attachment-confirm-info strong {
+  overflow: hidden;
+  color: #c9c9cf;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-confirm-info span {
+  flex: 0 0 auto;
+  color: #7f7f89;
+  font-size: 11px;
+}
+
+.attachment-preview-dialog > p.attachment-confirm-error {
+  margin: 12px 2px 0;
+  color: #ff8aa8;
+  font-size: 11px;
+  text-align: left;
+}
+
+.attachment-preview-dialog > footer.attachment-confirm-actions {
+  display: grid;
+  padding-top: 18px;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.attachment-preview-dialog > footer.attachment-confirm-actions button {
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.attachment-preview-dialog > footer .attachment-confirm-cancel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #b0b0b8;
+  background: #292930;
+}
+
+.attachment-preview-dialog > footer .attachment-confirm-send {
+  color: #101012;
+  background: #39d8e6;
+}
+
 .message-edit-button,
 .message-delete-button {
   display: inline-grid;
@@ -1056,13 +1417,17 @@
 .message-composer {
   display: grid;
   min-height: 54px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   background: #222228;
   box-shadow: none;
   overflow: hidden;
   transition: border-color 120ms ease;
+}
+
+.message-composer .attachment-file-input {
+  display: none;
 }
 
 .message-composer:focus-within {
@@ -1105,6 +1470,17 @@
 .message-composer button:hover:not(:disabled) {
   background: #65e2ec;
   filter: none;
+}
+
+.message-composer .attachment-upload-button {
+  margin-right: 0;
+  color: #9b9ba5;
+  background: transparent;
+}
+
+.message-composer .attachment-upload-button:hover:not(:disabled) {
+  color: #d8fbfe;
+  background: rgba(57, 216, 230, 0.08);
 }
 
 .message-composer button:disabled {

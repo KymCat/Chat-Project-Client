@@ -50,10 +50,22 @@ async function readResponse<T>(response: Response): Promise<T> {
 }
 
 async function send<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await sendRequest(path, options);
+  return readResponse<T>(response);
+}
+
+async function sendRequest(
+  path: string,
+  options: RequestOptions = {},
+): Promise<Response> {
   const headers = new Headers(options.headers);
   const shouldAttachToken = options.authenticated !== false;
 
-  if (options.body && !headers.has("Content-Type")) {
+  if (
+    options.body
+    && !(options.body instanceof FormData)
+    && !headers.has("Content-Type")
+  ) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -81,10 +93,22 @@ async function send<T>(path: string, options: RequestOptions = {}): Promise<T> {
       credentials: "include",
     });
 
-    return readResponse<T>(retriedResponse);
+    return retriedResponse;
   }
 
-  return readResponse<T>(response);
+  return response;
+}
+
+async function readBlobResponse(response: Response): Promise<Blob> {
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as ApiResponse<unknown> | null;
+    throw new ApiError(
+      response.status,
+      body?.message || "파일을 불러오지 못했습니다.",
+    );
+  }
+
+  return response.blob();
 }
 
 export function refreshAccessToken(): Promise<string> {
@@ -119,6 +143,10 @@ export const httpClient = {
       method: "POST",
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
+  postForm: <T>(path: string, body: FormData, options?: RequestOptions) =>
+    send<T>(path, { ...options, method: "POST", body }),
+  getBlob: async (path: string, options?: RequestOptions) =>
+    readBlobResponse(await sendRequest(path, { ...options, method: "GET" })),
   patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     send<T>(path, {
       ...options,
