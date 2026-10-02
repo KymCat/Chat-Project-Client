@@ -2,6 +2,7 @@ import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthProvider";
 import { ApiError } from "../shared/api/httpClient";
+import { API_BASE_URL } from "../shared/config/env";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -34,6 +35,10 @@ export function LoginPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleGoogleLogin = () => {
+    window.location.assign(`${API_BASE_URL}/oauth2/authorization/google`);
   };
 
   return (
@@ -73,6 +78,19 @@ export function LoginPage() {
 
           <button className="primary-button" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "로그인 중..." : "로그인"}
+          </button>
+
+          <div className="auth-divider" aria-hidden="true">
+            <span>또는</span>
+          </div>
+
+          <button
+            className="oauth-button"
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={isSubmitting}
+          >
+            Google로 로그인
           </button>
 
           <p className="form-switch">

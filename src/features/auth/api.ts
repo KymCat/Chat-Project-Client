@@ -14,9 +14,18 @@ export interface EmailVerificationConfirmRequest {
   code: string;
 }
 
+export interface OAuthLoginCodeExchangeRequest {
+  code: string;
+}
+
 export const authApi = {
   login: (request: LoginRequest) =>
     httpClient.post<string>("/auth/login", request, { authenticated: false }),
+  exchangeOAuthLoginCode: (request: OAuthLoginCodeExchangeRequest) =>
+    httpClient.post<string>("/auth/oauth/exchange", request, {
+      authenticated: false,
+      retryOnUnauthorized: false,
+    }),
   signup: (request: SignupRequest) =>
     httpClient.post<unknown>("/member/signup", request, { authenticated: false }),
   logout: () =>

@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useLocation } from "react-router-dom";
 import { authApi, type LoginRequest, type SignupRequest } from "../features/auth/api";
 import {
   refreshAccessToken,
@@ -19,15 +20,22 @@ interface AuthContextValue {
   signup: (request: SignupRequest) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  completeOAuthLogin: (code: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
+  const { pathname } = useLocation();
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
 
   useEffect(() => {
+    if (pathname === "/oauth/callback") {
+      setIsBootstrapping(false);
+      return;
+    }
+
     let active = true;
 
     refreshAccessToken()
@@ -68,6 +76,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       },
       refreshSession: async () => {
         const token = await refreshAccessToken();
+        setAccessToken(token);
+      },
+      completeOAuthLogin: async (code) => {
+        const token = await authApi.exchangeOAuthLoginCode({ code });
+        saveAccessToken(token);
         setAccessToken(token);
       },
     }),
