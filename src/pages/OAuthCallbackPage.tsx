@@ -14,6 +14,13 @@ export function OAuthCallbackPage() {
     if (exchangeStartedRef.current) return;
     exchangeStartedRef.current = true;
 
+    const oauthError = searchParams.get("oauthError");
+    if (oauthError === "true") {
+      window.history.replaceState({}, document.title, "/oauth/callback");
+      setError("Google 로그인을 완료하지 못했습니다. 다시 시도해주세요.");
+      return;
+    }
+
     const code = searchParams.get("code");
     if (!code) {
       setError("소셜 로그인 코드가 없습니다. 다시 로그인해주세요.");
