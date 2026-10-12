@@ -2328,7 +2328,14 @@ export function ChatPage() {
                 disabled={isCreatingRoom}
                 aria-label="채팅방 생성 닫기"
               >
-                ×
+                <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                  <path
+                    d="m5 5 10 10M15 5 5 15"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                </svg>
               </button>
             </header>
 
@@ -2392,7 +2399,14 @@ export function ChatPage() {
                 disabled={isUpdatingRoomName}
                 aria-label="채팅방 이름 변경 닫기"
               >
-                ×
+                <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                  <path
+                    d="m5 5 10 10M15 5 5 15"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                </svg>
               </button>
             </header>
 
