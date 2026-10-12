@@ -140,4 +140,22 @@ export const chatRoomApi = {
       `/chat-rooms/${roomId}/messages?${searchParams.toString()}`,
     );
   },
+  searchMessages: (
+    roomId: number,
+    keyword: string,
+    beforeMessageId: number | null = null,
+    size = 30,
+  ) => {
+    const searchParams = new URLSearchParams({
+      keyword,
+      size: String(size),
+    });
+    if (beforeMessageId !== null) {
+      searchParams.set("beforeMessageId", String(beforeMessageId));
+    }
+
+    return httpClient.get<CursorPageResponse<ChatMessage>>(
+      `/chat-rooms/${roomId}/messages/search?${searchParams.toString()}`,
+    );
+  },
 };

@@ -608,7 +608,8 @@
 }
 
 .member-summary-button,
-.room-menu-button {
+.room-menu-button,
+.message-search-button {
   display: flex;
   height: 30px;
   padding: 0;
@@ -627,20 +628,24 @@
   font-size: 11px;
 }
 
-.room-menu-button {
+.room-menu-button,
+.message-search-button {
   width: 34px;
 }
 
 .member-summary-button:hover:not(:disabled),
 .member-summary-button[aria-expanded="true"],
 .room-menu-button:hover:not(:disabled),
-.room-menu-button[aria-expanded="true"] {
+.room-menu-button[aria-expanded="true"],
+.message-search-button:hover:not(:disabled),
+.message-search-button[aria-expanded="true"] {
   color: #39d8e6;
   background: rgba(255, 255, 255, 0.06);
 }
 
 .member-summary-button:disabled,
-.room-menu-button:disabled {
+.room-menu-button:disabled,
+.message-search-button:disabled {
   cursor: not-allowed;
   opacity: 0.36;
 }
@@ -650,7 +655,8 @@
   height: 15px;
 }
 
-.room-menu-button svg {
+.room-menu-button svg,
+.message-search-button svg {
   width: 18px;
   height: 18px;
 }
@@ -694,6 +700,129 @@
 .close-chat-button:hover {
   color: #39d8e6;
   background: rgba(255, 255, 255, 0.06);
+}
+
+.message-search-panel {
+  position: relative;
+  display: flex;
+  min-height: 58px;
+  padding: 10px clamp(22px, 3vw, 42px);
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #18181c;
+}
+
+.message-search-panel form {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 11px;
+  background: #222228;
+}
+
+.message-search-panel form:focus-within {
+  border-color: rgba(57, 216, 230, 0.42);
+  box-shadow: 0 0 0 3px rgba(57, 216, 230, 0.08);
+}
+
+.message-search-input-icon {
+  display: grid;
+  width: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  color: #777782;
+}
+
+.message-search-input-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.message-search-panel input {
+  min-width: 0;
+  height: 38px;
+  padding: 0;
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+  color: #f0f0f2;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+}
+
+.message-search-panel input::placeholder {
+  color: #777782;
+}
+
+.message-search-submit {
+  height: 30px;
+  margin-right: 4px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  color: #151517;
+  background: #39d8e6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.message-search-submit:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.message-search-navigation {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.message-search-navigation > span {
+  min-width: 96px;
+  margin-right: 4px;
+  color: #92929d;
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.message-search-navigation button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: #a8a8b2;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.message-search-navigation button:hover:not(:disabled) {
+  color: #39d8e6;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.message-search-navigation button:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
+.message-search-error {
+  position: absolute;
+  right: clamp(22px, 3vw, 42px);
+  bottom: -19px;
+  z-index: 2;
+  margin: 0;
+  color: #ff8aa8;
+  font-size: 11px;
 }
 
 .leave-chat-button,
@@ -832,6 +961,12 @@
 .message.own {
   margin-left: auto;
   flex-direction: row-reverse;
+}
+
+.message.search-target .message-bubble-row p {
+  outline: 2px solid rgba(57, 216, 230, 0.72);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px rgba(57, 216, 230, 0.08);
 }
 
 .message-avatar {
@@ -2383,6 +2518,27 @@
 
   .chat-header h1 {
     font-size: 17px;
+  }
+
+  .message-search-panel {
+    padding: 9px 16px;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .message-search-panel form {
+    flex-basis: 100%;
+  }
+
+  .message-search-navigation {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .message-search-error {
+    position: static;
+    width: 100%;
+    padding-left: 4px;
   }
 
   .connection {

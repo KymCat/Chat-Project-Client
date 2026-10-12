@@ -153,6 +153,17 @@ export function ChatPage() {
   const [roomEventToast, setRoomEventToast] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
+  const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const [messageSearchKeyword, setMessageSearchKeyword] = useState("");
+  const [messageSearchResults, setMessageSearchResults] =
+    useState<ChatMessage[]>([]);
+  const [messageSearchIndex, setMessageSearchIndex] = useState(-1);
+  const [messageSearchHasNext, setMessageSearchHasNext] = useState(false);
+  const [messageSearchNextCursor, setMessageSearchNextCursor] =
+    useState<number | null>(null);
+  const [isSearchingMessages, setIsSearchingMessages] = useState(false);
+  const [messageSearchError, setMessageSearchError] = useState("");
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const loadingMessageRoomIdsRef = useRef(new Set<number>());
@@ -166,6 +177,8 @@ export function ChatPage() {
   const lastReadRequestByRoomRef = useRef(new Map<number, number>());
   const latestMessageIdByRoomRef = useRef(new Map<number, number>());
   const isRecoveringConnectionRef = useRef(false);
+  const messageSearchRequestIdRef = useRef(0);
+  const pendingSearchScrollMessageIdRef = useRef<number | null>(null);
 
   const claims = useMemo(
     () => (accessToken ? readAccessToken(accessToken) : null),
@@ -183,6 +196,9 @@ export function ChatPage() {
   const activeMessagePage = activeRoomId === null
     ? null
     : messagePagesByRoom[activeRoomId] ?? null;
+  const activeSearchMessageId = messageSearchIndex >= 0
+    ? messageSearchResults[messageSearchIndex]?.messageId ?? null
+    : null;
   const filteredRooms = useMemo(() => {
     const query = roomSearchQuery.trim().toLocaleLowerCase();
     if (!query) return rooms;
@@ -200,9 +216,27 @@ export function ChatPage() {
     );
   }, [availableRooms, roomSearchQuery]);
 
+  const resetMessageSearch = useCallback(() => {
+    messageSearchRequestIdRef.current += 1;
+    pendingSearchScrollMessageIdRef.current = null;
+    setIsMessageSearchOpen(false);
+    setMessageSearchQuery("");
+    setMessageSearchKeyword("");
+    setMessageSearchResults([]);
+    setMessageSearchIndex(-1);
+    setMessageSearchHasNext(false);
+    setMessageSearchNextCursor(null);
+    setIsSearchingMessages(false);
+    setMessageSearchError("");
+  }, []);
+
   useEffect(() => {
     activeRoomIdRef.current = activeRoomId;
   }, [activeRoomId]);
+
+  useEffect(() => {
+    resetMessageSearch();
+  }, [activeRoomId, resetMessageSearch]);
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
@@ -553,6 +587,19 @@ export function ChatPage() {
       rooms.map((room) => room.roomId),
     );
   }, [rooms]);
+
+  useLayoutEffect(() => {
+    const messageId = pendingSearchScrollMessageIdRef.current;
+    if (messageId === null) return;
+
+    const target = messageListRef.current?.querySelector<HTMLElement>(
+      `[data-message-id="${messageId}"]`,
+    );
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    pendingSearchScrollMessageIdRef.current = null;
+  }, [activeSearchMessageId, messages]);
 
   useLayoutEffect(() => {
     const pendingScroll = pendingHistoryScrollRef.current;
@@ -1172,6 +1219,174 @@ export function ChatPage() {
     }
   };
 
+  const revealMessageSearchResult = (
+    target: ChatMessage,
+    index: number,
+  ) => {
+    if (activeRoomId === null) return;
+
+    pendingSearchScrollMessageIdRef.current = target.messageId;
+    shouldScrollToBottomRef.current = false;
+    setMessageSearchIndex(index);
+    setMessagesByRoom((current) => ({
+      ...current,
+      [activeRoomId]: mergeMessages(
+        current[activeRoomId] ?? [],
+        [target],
+      ),
+    }));
+  };
+
+  const handleToggleMessageSearch = () => {
+    if (isMessageSearchOpen) {
+      resetMessageSearch();
+      return;
+    }
+
+    setIsMemberListOpen(false);
+    setIsRoomMenuOpen(false);
+    setIsMessageSearchOpen(true);
+    setMessageSearchError("");
+  };
+
+  const handleSearchMessages = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!activeRoom || isSearchingMessages) return;
+
+    const normalizedKeyword = messageSearchQuery.trim();
+    if (!normalizedKeyword) {
+      setMessageSearchError("검색어를 입력해주세요.");
+      return;
+    }
+
+    const roomId = activeRoom.roomId;
+    const requestId = ++messageSearchRequestIdRef.current;
+    setIsSearchingMessages(true);
+    setMessageSearchError("");
+
+    try {
+      const response = await chatRoomApi.searchMessages(
+        roomId,
+        normalizedKeyword,
+      );
+      if (
+        requestId !== messageSearchRequestIdRef.current
+        || activeRoomIdRef.current !== roomId
+      ) {
+        return;
+      }
+
+      setMessageSearchKeyword(normalizedKeyword);
+      setMessageSearchResults(response.content);
+      setMessageSearchHasNext(response.hasNext);
+      setMessageSearchNextCursor(response.nextCursor);
+
+      const firstResult = response.content[0];
+      if (firstResult) {
+        revealMessageSearchResult(firstResult, 0);
+      } else {
+        setMessageSearchIndex(-1);
+      }
+    } catch (searchError) {
+      if (requestId !== messageSearchRequestIdRef.current) return;
+
+      setMessageSearchResults([]);
+      setMessageSearchIndex(-1);
+      setMessageSearchHasNext(false);
+      setMessageSearchNextCursor(null);
+      setMessageSearchError(
+        searchError instanceof Error
+          ? searchError.message
+          : "메시지를 검색하지 못했습니다.",
+      );
+    } finally {
+      if (requestId === messageSearchRequestIdRef.current) {
+        setIsSearchingMessages(false);
+      }
+    }
+  };
+
+  const handlePreviousSearchResult = () => {
+    const previousIndex = messageSearchIndex - 1;
+    const target = messageSearchResults[previousIndex];
+    if (!target) return;
+
+    revealMessageSearchResult(target, previousIndex);
+  };
+
+  const handleNextSearchResult = async () => {
+    if (!activeRoom || messageSearchIndex < 0 || isSearchingMessages) return;
+
+    const nextIndex = messageSearchIndex + 1;
+    const loadedTarget = messageSearchResults[nextIndex];
+    if (loadedTarget) {
+      revealMessageSearchResult(loadedTarget, nextIndex);
+      return;
+    }
+
+    if (
+      !messageSearchHasNext
+      || messageSearchNextCursor === null
+      || !messageSearchKeyword
+    ) {
+      return;
+    }
+
+    const roomId = activeRoom.roomId;
+    const requestId = ++messageSearchRequestIdRef.current;
+    setIsSearchingMessages(true);
+    setMessageSearchError("");
+
+    try {
+      const response = await chatRoomApi.searchMessages(
+        roomId,
+        messageSearchKeyword,
+        messageSearchNextCursor,
+      );
+      if (
+        requestId !== messageSearchRequestIdRef.current
+        || activeRoomIdRef.current !== roomId
+      ) {
+        return;
+      }
+
+      const existingIds = new Set(
+        messageSearchResults.map((item) => item.messageId),
+      );
+      const additionalResults = response.content.filter(
+        (item) => !existingIds.has(item.messageId),
+      );
+      const combinedResults = [
+        ...messageSearchResults,
+        ...additionalResults,
+      ];
+
+      setMessageSearchResults(combinedResults);
+      setMessageSearchHasNext(response.hasNext);
+      setMessageSearchNextCursor(response.nextCursor);
+
+      const firstAdditionalResult = additionalResults[0];
+      if (firstAdditionalResult) {
+        revealMessageSearchResult(
+          firstAdditionalResult,
+          messageSearchResults.length,
+        );
+      }
+    } catch (searchError) {
+      if (requestId !== messageSearchRequestIdRef.current) return;
+
+      setMessageSearchError(
+        searchError instanceof Error
+          ? searchError.message
+          : "다음 검색 결과를 불러오지 못했습니다.",
+      );
+    } finally {
+      if (requestId === messageSearchRequestIdRef.current) {
+        setIsSearchingMessages(false);
+      }
+    }
+  };
+
   const handleOpenRoom = (roomId: number) => {
     setIsMemberListOpen(false);
     setIsRoomMenuOpen(false);
@@ -1493,6 +1708,31 @@ export function ChatPage() {
             </div>
           </div>
           <div className="chat-header-actions">
+            <button
+              className="message-search-button"
+              type="button"
+              onClick={handleToggleMessageSearch}
+              disabled={!activeRoom || isActiveRoomDeleted}
+              aria-expanded={isMessageSearchOpen}
+              aria-controls="message-search-panel"
+              aria-label="메시지 검색"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                <circle
+                  cx="8.5"
+                  cy="8.5"
+                  r="4.5"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                />
+                <path
+                  d="m12 12 4 4"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
             <div className="room-menu-anchor">
               <button
                 className="room-menu-button"
@@ -1585,6 +1825,101 @@ export function ChatPage() {
           </div>
         </header>
 
+        {isMessageSearchOpen && activeRoom && (
+          <section
+            className="message-search-panel"
+            id="message-search-panel"
+            aria-label="채팅 메시지 검색"
+          >
+            <form onSubmit={(event) => void handleSearchMessages(event)}>
+              <span className="message-search-input-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="none">
+                  <circle
+                    cx="8.5"
+                    cy="8.5"
+                    r="4.5"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                  />
+                  <path
+                    d="m12 12 4 4"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+              <input
+                type="search"
+                value={messageSearchQuery}
+                onChange={(event) => setMessageSearchQuery(event.target.value)}
+                maxLength={100}
+                placeholder="메시지 검색"
+                aria-label="메시지 검색어"
+                autoFocus
+              />
+              <button
+                className="message-search-submit"
+                type="submit"
+                disabled={isSearchingMessages || !messageSearchQuery.trim()}
+              >
+                {isSearchingMessages ? "검색 중" : "검색"}
+              </button>
+            </form>
+
+            <div className="message-search-navigation">
+              <span aria-live="polite">
+                {messageSearchResults.length === 0
+                  ? messageSearchKeyword
+                    ? "검색 결과 없음"
+                    : "검색어를 입력하세요"
+                  : `${messageSearchIndex + 1} / ${messageSearchResults.length}${
+                    messageSearchHasNext ? "+" : ""
+                  }`}
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleNextSearchResult()}
+                disabled={
+                  messageSearchIndex < 0
+                  || isSearchingMessages
+                  || (
+                    messageSearchIndex >= messageSearchResults.length - 1
+                    && !messageSearchHasNext
+                  )
+                }
+                aria-label="더 이전 검색 결과"
+                title="더 이전 검색 결과"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                onClick={handlePreviousSearchResult}
+                disabled={messageSearchIndex <= 0 || isSearchingMessages}
+                aria-label="더 최신 검색 결과"
+                title="더 최신 검색 결과"
+              >
+                ↓
+              </button>
+              <button
+                className="message-search-close"
+                type="button"
+                onClick={resetMessageSearch}
+                aria-label="메시지 검색 닫기"
+              >
+                ×
+              </button>
+            </div>
+
+            {messageSearchError && (
+              <p className="message-search-error" role="alert">
+                {messageSearchError}
+              </p>
+            )}
+          </section>
+        )}
+
         <div className="email-verification-area">
           {!emailVerified && <EmailVerificationPanel />}
         </div>
@@ -1669,7 +2004,13 @@ export function ChatPage() {
 
                 {item.type === "TEXT" ? (
                   <article
-                    className={item.senderId === memberId ? "message own" : "message"}
+                    className={[
+                      item.senderId === memberId ? "message own" : "message",
+                      item.messageId === activeSearchMessageId
+                        ? "search-target"
+                        : "",
+                    ].filter(Boolean).join(" ")}
+                    data-message-id={item.messageId}
                   >
                     <span className="message-avatar">
                       {item.senderNickname?.slice(-2).toUpperCase() ?? "!"}
