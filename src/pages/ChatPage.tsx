@@ -63,6 +63,18 @@ const messageDateFormatter = new Intl.DateTimeFormat("ko-KR", {
   weekday: "long",
 });
 
+const messageAvatarColorClasses = [
+  "message-avatar-chihiro",
+  "message-avatar-kotama",
+  "message-avatar-maki",
+  "message-avatar-hare",
+] as const;
+
+function getMessageAvatarColorClass(senderId: number | null) {
+  const colorIndex = Math.abs(senderId ?? 0) % messageAvatarColorClasses.length;
+  return messageAvatarColorClasses[colorIndex];
+}
+
 function formatMessageTime(createdAt: string) {
   return messageTimeFormatter.format(new Date(createdAt));
 }
@@ -2012,7 +2024,9 @@ export function ChatPage() {
                     ].filter(Boolean).join(" ")}
                     data-message-id={item.messageId}
                   >
-                    <span className="message-avatar">
+                    <span
+                      className={`message-avatar ${getMessageAvatarColorClass(item.senderId)}`}
+                    >
                       {item.senderNickname?.slice(-2).toUpperCase() ?? "!"}
                     </span>
                     <div className="message-content">
@@ -2112,7 +2126,9 @@ export function ChatPage() {
                   <article
                     className={item.senderId === memberId ? "message own" : "message"}
                   >
-                    <span className="message-avatar">
+                    <span
+                      className={`message-avatar ${getMessageAvatarColorClass(item.senderId)}`}
+                    >
                       {item.senderNickname?.slice(-2).toUpperCase() ?? "!"}
                     </span>
                     <div className="message-content">
