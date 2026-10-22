@@ -16,11 +16,13 @@ import {
 interface AuthContextValue {
   accessToken: string | null;
   isBootstrapping: boolean;
+  isLoginTransitionPending: boolean;
   login: (request: LoginRequest) => Promise<void>;
   signup: (request: SignupRequest) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   completeOAuthLogin: (code: string) => Promise<void>;
+  completeLoginTransition: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -29,6 +31,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const { pathname } = useLocation();
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isLoginTransitionPending, setIsLoginTransitionPending] = useState(false);
 
   useEffect(() => {
     if (pathname === "/oauth/callback") {
@@ -58,10 +61,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     () => ({
       accessToken,
       isBootstrapping,
+      isLoginTransitionPending,
       login: async (request) => {
         const token = await authApi.login(request);
         saveAccessToken(token);
         setAccessToken(token);
+        setIsLoginTransitionPending(true);
       },
       signup: async (request) => {
         await authApi.signup(request);
@@ -72,6 +77,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         } finally {
           saveAccessToken(null);
           setAccessToken(null);
+          setIsLoginTransitionPending(false);
         }
       },
       refreshSession: async () => {
@@ -82,9 +88,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
         const token = await authApi.exchangeOAuthLoginCode({ code });
         saveAccessToken(token);
         setAccessToken(token);
+        setIsLoginTransitionPending(true);
       },
+      completeLoginTransition: () => setIsLoginTransitionPending(false),
     }),
-    [accessToken, isBootstrapping],
+    [accessToken, isBootstrapping, isLoginTransitionPending],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

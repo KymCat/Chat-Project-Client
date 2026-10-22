@@ -65,7 +65,7 @@ export function EmailVerificationPanel() {
   return (
     <section className="email-verification" aria-labelledby="email-verification-title">
       <div className="email-verification-copy">
-        <p className="eyebrow">EMAIL VERIFICATION</p>
+        <p className="eyebrow">$ auth --verify-email</p>
         <h2 id="email-verification-title">이메일을 인증해주세요.</h2>
         <p>인증 메일을 요청하고 전달받은 6자리 코드를 입력하세요.</p>
       </div>
