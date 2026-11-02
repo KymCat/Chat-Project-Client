@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { getRedirectFromSearch } from "../features/auth/redirect";
 import { useAuth } from "./AuthProvider";
 
 const LOADING_TEXT = "Get Over the World 🌐";
@@ -78,6 +79,7 @@ function LoadingScreen({ overlay = false, onComplete }: LoadingScreenProps) {
 }
 
 export function ProtectedRoute() {
+  const location = useLocation();
   const {
     accessToken,
     isBootstrapping,
@@ -86,7 +88,15 @@ export function ProtectedRoute() {
   } = useAuth();
 
   if (isBootstrapping) return <LoadingScreen />;
-  if (!accessToken) return <Navigate to="/login" replace />;
+  if (!accessToken) {
+    const requestedPath = `${location.pathname}${location.search}`;
+    return (
+      <Navigate
+        to={`/login?redirect=${encodeURIComponent(requestedPath)}`}
+        replace
+      />
+    );
+  }
 
   return (
     <>
@@ -102,7 +112,10 @@ export function ProtectedRoute() {
 
 export function PublicOnlyRoute() {
   const { accessToken, isBootstrapping } = useAuth();
+  const location = useLocation();
 
   if (isBootstrapping) return <LoadingScreen />;
-  return accessToken ? <Navigate to="/chat" replace /> : <Outlet />;
+  return accessToken
+    ? <Navigate to={getRedirectFromSearch(location.search)} replace />
+    : <Outlet />;
 }

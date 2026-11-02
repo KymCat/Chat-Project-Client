@@ -1,9 +1,13 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/AuthProvider";
 import { ApiError } from "../../shared/api/httpClient";
 import { API_BASE_URL } from "../../shared/config/env";
+import {
+  getRedirectFromSearch,
+  savePendingRedirect,
+} from "./redirect";
 
 interface AuthFormProps {
   mode: "login" | "signup";
@@ -11,6 +15,7 @@ interface AuthFormProps {
 
 export function AuthForm({ mode }: AuthFormProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, signup } = useAuth();
   const [email, setEmail] = useState("");
   const [nickname, setNickname] = useState("");
@@ -19,6 +24,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSignup = mode === "signup";
+  const redirectPath = getRedirectFromSearch(location.search);
 
   useEffect(() => {
     setError("");
@@ -38,12 +44,15 @@ export function AuthForm({ mode }: AuthFormProps) {
     try {
       if (isSignup) {
         await signup({ email, nickname, password, profileImageUrl: null });
-        navigate("/login", { replace: true });
+        const redirectSearch = redirectPath === "/chat"
+          ? ""
+          : `?redirect=${encodeURIComponent(redirectPath)}`;
+        navigate(`/login${redirectSearch}`, { replace: true });
         return;
       }
 
       await login({ email, password });
-      navigate("/chat", { replace: true });
+      navigate(redirectPath, { replace: true });
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -56,6 +65,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   };
 
   const handleGoogleLogin = () => {
+    savePendingRedirect(redirectPath);
     window.location.assign(`${API_BASE_URL}/oauth2/authorization/google`);
   };
 

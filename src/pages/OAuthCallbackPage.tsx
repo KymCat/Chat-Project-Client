@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../app/AuthProvider";
 import { ApiError } from "../shared/api/httpClient";
+import { readAndClearPendingRedirect } from "../features/auth/redirect";
 
 export function OAuthCallbackPage() {
   const navigate = useNavigate();
@@ -31,7 +32,7 @@ export function OAuthCallbackPage() {
 
     completeOAuthLogin(code)
       .then(() => {
-        navigate("/chat", { replace: true });
+        navigate(readAndClearPendingRedirect(), { replace: true });
       })
       .catch((requestError) => {
         setError(

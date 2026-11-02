@@ -9,6 +9,7 @@ import { AuthForm } from "./AuthForm";
 
 interface AuthSceneProps {
   mode: "login" | "signup";
+  redirectSearch?: string;
 }
 
 const BRAND_LABELS = ["베리타스", "Veritas", "ヴェリタス"] as const;
@@ -19,7 +20,7 @@ const AUTH_LAYOUT_TRANSITION = {
   ease: [0.22, 1, 0.36, 1],
 } as const;
 
-export function AuthScene({ mode }: AuthSceneProps) {
+export function AuthScene({ mode, redirectSearch = "" }: AuthSceneProps) {
   const [brandIndex, setBrandIndex] = useState(0);
   const [brandText, setBrandText] = useState<string>(BRAND_LABELS[0]);
   const [isScrambling, setIsScrambling] = useState(false);
@@ -93,7 +94,7 @@ export function AuthScene({ mode }: AuthSceneProps) {
           />
           <Link
             className={mode === "login" ? "active" : ""}
-            to="/login"
+            to={`/login${redirectSearch}`}
             aria-label="로그인"
             aria-current={mode === "login" ? "page" : undefined}
           >
@@ -104,7 +105,7 @@ export function AuthScene({ mode }: AuthSceneProps) {
           </Link>
           <Link
             className={mode === "signup" ? "active" : ""}
-            to="/signup"
+            to={`/signup${redirectSearch}`}
             aria-label="회원가입"
             aria-current={mode === "signup" ? "page" : undefined}
           >
@@ -121,14 +122,18 @@ export function AuthScene({ mode }: AuthSceneProps) {
             <AuthForm mode={mode} />
           </div>
         </MotionConfig>
+
+        <Link className="auth-privacy-link" to="/privacy">
+          서비스 운영 및 개인정보 안내
+        </Link>
       </section>
     </main>
   );
 }
 
 export function AuthRouteLayout() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const mode = pathname === "/signup" ? "signup" : "login";
 
-  return <AuthScene mode={mode} />;
+  return <AuthScene mode={mode} redirectSearch={search} />;
 }

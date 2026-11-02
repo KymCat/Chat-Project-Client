@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { Link } from "react-router-dom";
 import "../styles/chat.css";
 import { useAuth } from "../app/AuthProvider";
 import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
@@ -22,16 +23,26 @@ import {
   type ChatMessage,
   type ChatMessageEvent,
   type ChatRoomEvent,
+  type ChatRoomInviteLinkResponse,
   type ChatRoomMemberResponse,
   type ChatRoomResponse,
   type GroupChatRoomResponse,
+  type InviteLinkExpiration,
 } from "../features/chat/api";
 import { connectChat } from "../features/chat/stompClient";
 import {
+  friendApi,
+  type CursorPageResponse,
+  type FriendListResponse,
+  type FriendRequestResponse,
+} from "../features/friend/api";
+import {
   memberApi,
   type MemberProfileResponse,
+  type MemberPublicProfileResponse,
 } from "../features/member/api";
 import { readAccessToken } from "../shared/auth/token";
+import { ApiError } from "../shared/api/httpClient";
 
 interface MessagePageState {
   initialized: boolean;
@@ -48,6 +59,7 @@ interface PendingHistoryScroll {
 }
 
 type ChatGalleryTab = "joined" | "available" | "friends";
+type FriendPanelTab = "accepted" | "received" | "sent";
 
 interface DeletedRoomNotice {
   roomId: number;
@@ -60,6 +72,32 @@ interface PendingAttachment {
   previewUrl: string | null;
 }
 
+interface PendingProfileImage {
+  file: File;
+  previewUrl: string;
+}
+
+interface ViewedMemberProfile {
+  memberId: number;
+  displayName: string;
+  role: ChatRoomMemberResponse["role"] | null;
+  joinedAt: string | null;
+  publicProfile: MemberPublicProfileResponse | null;
+  isLoading: boolean;
+  error: string;
+}
+
+interface FriendRemovalTarget {
+  memberId: number;
+  displayName: string;
+}
+
+const emptyFriendRequestPage: CursorPageResponse<FriendRequestResponse> = {
+  content: [],
+  nextCursor: null,
+  hasNext: false,
+};
+
 const messageTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
   hour: "2-digit",
   minute: "2-digit",
@@ -71,6 +109,20 @@ const messageDateFormatter = new Intl.DateTimeFormat("ko-KR", {
   month: "long",
   day: "numeric",
   weekday: "long",
+});
+
+const memberJoinedAtFormatter = new Intl.DateTimeFormat("ko-KR", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+const friendRequestDateFormatter = new Intl.DateTimeFormat("ko-KR", {
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
 });
 
 const messageAvatarColorClasses = [
@@ -95,19 +147,6 @@ function getTerminalIdentity(
   const shortId = senderId === null ? "system" : senderId.toString(36);
 
   return `${nickname}-${shortId}`;
-}
-
-function ProfileIcon() {
-  return (
-    <svg
-      className="profile-icon"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-    >
-      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
-      <path d="M4.75 20a7.25 7.25 0 0 1 14.5 0" />
-    </svg>
-  );
 }
 
 function TerminalTypedCommand({ command }: { command: string }) {
@@ -164,10 +203,44 @@ function formatMessageDate(createdAt: string) {
   return messageDateFormatter.format(new Date(createdAt));
 }
 
+function formatMemberJoinedAt(joinedAt: string) {
+  return memberJoinedAtFormatter.format(new Date(joinedAt));
+}
+
 function formatSelectedFileSize(sizeBytes: number) {
   if (sizeBytes < 1_024) return `${sizeBytes} B`;
   if (sizeBytes < 1_048_576) return `${(sizeBytes / 1_024).toFixed(1)} KB`;
   return `${(sizeBytes / 1_048_576).toFixed(1)} MB`;
+}
+
+function getProfileRelationLabel(
+  relationStatus: MemberPublicProfileResponse["relationStatus"],
+) {
+  switch (relationStatus) {
+    case "ACCEPTED":
+      return "FRIEND";
+    case "PENDING_SENT":
+      return "REQUEST_SENT";
+    case "PENDING_RECEIVED":
+      return "REQUEST_RECEIVED";
+    case "SELF":
+      return "SELF";
+    default:
+      return "NOT_CONNECTED";
+  }
+}
+
+function readInvitedRoomId() {
+  const value = new URLSearchParams(window.location.search).get("room");
+  const roomId = value ? Number(value) : NaN;
+  return Number.isSafeInteger(roomId) && roomId > 0 ? roomId : null;
+}
+
+function formatInviteExpiration(expiresAt: string) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(expiresAt));
 }
 
 function isSameMessageDate(left: string, right: string) {
@@ -201,6 +274,19 @@ export function ChatPage() {
   const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
   const [openRoomIds, setOpenRoomIds] = useState<number[]>([]);
   const [activeGalleryTab, setActiveGalleryTab] = useState<ChatGalleryTab>("joined");
+  const [friendPanelTab, setFriendPanelTab] = useState<FriendPanelTab>("accepted");
+  const [friends, setFriends] = useState<FriendListResponse[]>([]);
+  const [sentFriendRequests, setSentFriendRequests] =
+    useState<CursorPageResponse<FriendRequestResponse>>(emptyFriendRequestPage);
+  const [receivedFriendRequests, setReceivedFriendRequests] =
+    useState<CursorPageResponse<FriendRequestResponse>>(emptyFriendRequestPage);
+  const [isLoadingFriendData, setIsLoadingFriendData] = useState(false);
+  const [isLoadingMoreFriendRequests, setIsLoadingMoreFriendRequests] = useState(false);
+  const [friendError, setFriendError] = useState("");
+  const [friendNotice, setFriendNotice] = useState("");
+  const [friendOperationKey, setFriendOperationKey] = useState<string | null>(null);
+  const [friendRemovalTarget, setFriendRemovalTarget] =
+    useState<FriendRemovalTarget | null>(null);
   const [roomAvatarPage, setRoomAvatarPage] = useState(0);
   const [isLoadingRooms, setIsLoadingRooms] = useState(true);
   const [roomListError, setRoomListError] = useState("");
@@ -230,8 +316,29 @@ export function ChatPage() {
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [viewedMemberProfile, setViewedMemberProfile] =
+    useState<ViewedMemberProfile | null>(null);
   const [memberProfile, setMemberProfile] =
     useState<MemberProfileResponse | null>(null);
+  const [profileImageRevision, setProfileImageRevision] = useState(0);
+  const [isUpdatingProfileImage, setIsUpdatingProfileImage] = useState(false);
+  const [isProfileImageSourceOpen, setIsProfileImageSourceOpen] = useState(false);
+  const [profileImageError, setProfileImageError] = useState("");
+  const [pendingProfileImage, setPendingProfileImage] =
+    useState<PendingProfileImage | null>(null);
+  const [profileImageAction, setProfileImageAction] =
+    useState<"upload" | "social" | "delete" | null>(null);
+  const [inviteTargetRoom, setInviteTargetRoom] =
+    useState<ChatRoomResponse | null>(null);
+  const [inviteLink, setInviteLink] =
+    useState<ChatRoomInviteLinkResponse | null>(null);
+  const [inviteExpiration, setInviteExpiration] =
+    useState<InviteLinkExpiration>("ONE_DAY");
+  const [inviteOperation, setInviteOperation] = useState<
+    "loading" | "create" | "reissue" | "delete" | "copy" | null
+  >(null);
+  const [inviteError, setInviteError] = useState("");
+  const [inviteNotice, setInviteNotice] = useState("");
   const [isMemberListOpen, setIsMemberListOpen] = useState(false);
   const [isRoomMenuOpen, setIsRoomMenuOpen] = useState(false);
   const [roomMembers, setRoomMembers] = useState<ChatRoomMemberResponse[]>([]);
@@ -263,15 +370,17 @@ export function ChatPage() {
     useState<number | null>(null);
   const [isSearchingMessages, setIsSearchingMessages] = useState(false);
   const [messageSearchError, setMessageSearchError] = useState("");
+  const [isScrollToBottomVisible, setIsScrollToBottomVisible] = useState(false);
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const profileImageInputRef = useRef<HTMLInputElement>(null);
+  const invitedRoomIdRef = useRef(readInvitedRoomId());
   const loadingMessageRoomIdsRef = useRef(new Set<number>());
   const pendingHistoryScrollRef = useRef<PendingHistoryScroll | null>(null);
   const shouldScrollToBottomRef = useRef(true);
   const memberRequestIdRef = useRef(0);
   const messageListRef = useRef<HTMLDivElement>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
-  const chatWorkspaceRef = useRef<HTMLElement>(null);
   const lastRoomAvatarWheelAtRef = useRef(0);
   const activeRoomIdRef = useRef<number | null>(null);
   const isChatOpenRef = useRef(false);
@@ -287,6 +396,12 @@ export function ChatPage() {
   );
   const memberId = claims?.sub ? Number(claims.sub) : null;
   const nickname = memberProfile?.nickname ?? "사용자";
+  const ownProfileImageUrl = memberId === null
+    ? null
+    : memberApi.getProfileImageUrl(memberId, profileImageRevision);
+  const inviteUrl = inviteLink
+    ? `${window.location.origin}/invite/${encodeURIComponent(inviteLink.token)}`
+    : "";
   const emailVerified = claims?.email_verified === true;
   const activeRoom = rooms.find((room) => room.roomId === activeRoomId) ?? null;
   const isActiveRoomDeleted = deletedRoomNotice?.roomId === activeRoomId;
@@ -331,6 +446,12 @@ export function ChatPage() {
     activeRoomIdRef.current = activeRoomId;
   }, [activeRoomId]);
 
+  useEffect(() => () => {
+    if (pendingProfileImage) {
+      URL.revokeObjectURL(pendingProfileImage.previewUrl);
+    }
+  }, [pendingProfileImage]);
+
   const roomAvatarPageCount = Math.max(
     1,
     Math.ceil(rooms.length / ROOM_AVATARS_PER_PAGE),
@@ -352,18 +473,9 @@ export function ChatPage() {
     isChatOpenRef.current = isChatOpen;
   }, [isChatOpen]);
 
-  useLayoutEffect(() => {
-    if (!isChatOpen || activeRoomId === null) return;
-
-    const animationFrameId = window.requestAnimationFrame(() => {
-      chatWorkspaceRef.current?.scrollIntoView({
-        behavior: prefersReducedMotion ? "auto" : "smooth",
-        block: "nearest",
-      });
-    });
-
-    return () => window.cancelAnimationFrame(animationFrameId);
-  }, [activeRoomId, isChatOpen, prefersReducedMotion]);
+  useEffect(() => {
+    setIsScrollToBottomVisible(false);
+  }, [activeRoomId, isChatOpen]);
 
   useEffect(() => {
     const previewUrl = pendingAttachment?.previewUrl;
@@ -477,6 +589,65 @@ export function ChatPage() {
     }
   }, []);
 
+  const loadFriendData = useCallback(async () => {
+    setIsLoadingFriendData(true);
+    setFriendError("");
+
+    try {
+      const [friendList, sentRequests, receivedRequests] = await Promise.all([
+        friendApi.getFriends(),
+        friendApi.getSentRequests(),
+        friendApi.getReceivedRequests(),
+      ]);
+
+      setFriends(friendList);
+      setSentFriendRequests(sentRequests);
+      setReceivedFriendRequests(receivedRequests);
+    } catch (loadError) {
+      setFriendError(
+        loadError instanceof Error
+          ? loadError.message
+          : "친구 정보를 불러오지 못했습니다.",
+      );
+    } finally {
+      setIsLoadingFriendData(false);
+    }
+  }, []);
+
+  const loadMoreFriendRequests = async (direction: "sent" | "received") => {
+    if (isLoadingMoreFriendRequests) return;
+
+    const currentPage = direction === "sent"
+      ? sentFriendRequests
+      : receivedFriendRequests;
+    if (!currentPage.hasNext || currentPage.nextCursor === null) return;
+
+    setIsLoadingMoreFriendRequests(true);
+    setFriendError("");
+
+    try {
+      const nextPage = direction === "sent"
+        ? await friendApi.getSentRequests(currentPage.nextCursor)
+        : await friendApi.getReceivedRequests(currentPage.nextCursor);
+      const updatePage = direction === "sent"
+        ? setSentFriendRequests
+        : setReceivedFriendRequests;
+
+      updatePage((current) => ({
+        ...nextPage,
+        content: [...current.content, ...nextPage.content],
+      }));
+    } catch (loadError) {
+      setFriendError(
+        loadError instanceof Error
+          ? loadError.message
+          : "친구 요청을 추가로 불러오지 못했습니다.",
+      );
+    } finally {
+      setIsLoadingMoreFriendRequests(false);
+    }
+  };
+
   const loadMessages = useCallback(async (
     roomId: number,
     beforeMessageId: number | null = null,
@@ -573,6 +744,11 @@ export function ChatPage() {
   useEffect(() => {
     if (!accessToken) {
       setMemberProfile(null);
+      setFriends([]);
+      setSentFriendRequests(emptyFriendRequestPage);
+      setReceivedFriendRequests(emptyFriendRequestPage);
+      setFriendError("");
+      setFriendNotice("");
       setRooms([]);
       setActiveRoomId(null);
       setOpenRoomIds([]);
@@ -589,9 +765,30 @@ export function ChatPage() {
     void memberApi.getProfile().then(setMemberProfile).catch(() => {
       setMemberProfile(null);
     });
-    void loadRooms();
+    const invitedRoomId = invitedRoomIdRef.current;
+    void loadRooms(invitedRoomId ?? undefined).then((loadedRooms) => {
+      if (
+        invitedRoomId === null
+        || !loadedRooms?.some((room) => room.roomId === invitedRoomId)
+      ) {
+        return;
+      }
+
+      invitedRoomIdRef.current = null;
+      setOpenRoomIds((current) => current.includes(invitedRoomId)
+        ? current
+        : [...current, invitedRoomId].slice(-3));
+      setIsChatOpen(true);
+      window.history.replaceState({}, document.title, "/chat");
+    });
     void loadAvailableRooms();
   }, [accessToken, loadAvailableRooms, loadRooms]);
+
+  useEffect(() => {
+    if (!accessToken || activeGalleryTab !== "friends") return;
+
+    void loadFriendData();
+  }, [accessToken, activeGalleryTab, loadFriendData]);
 
   useEffect(() => {
     if (
@@ -786,12 +983,29 @@ export function ChatPage() {
   }, [activeRoomId, isViewingRoomAtBottom, markRoomAsRead, messages]);
 
   const handleMessageListScroll = () => {
+    const messageList = messageListRef.current;
+    if (!messageList) return;
+
+    const distanceFromBottom = messageList.scrollHeight
+      - messageList.scrollTop
+      - messageList.clientHeight;
+    setIsScrollToBottomVisible(distanceFromBottom > 160);
+
     if (activeRoomId === null || messages.length === 0) return;
 
     const latestMessage = messages[messages.length - 1];
     if (isViewingRoomAtBottom(activeRoomId)) {
       void markRoomAsRead(activeRoomId, latestMessage.messageId);
     }
+  };
+
+  const handleScrollToBottom = () => {
+    shouldScrollToBottomRef.current = true;
+    messageEndRef.current?.scrollIntoView({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+      block: "end",
+    });
+    setIsScrollToBottomVisible(false);
   };
 
   const handleLoadOlderMessages = async () => {
@@ -894,14 +1108,20 @@ export function ChatPage() {
   const handleDeleteMessage = async (targetMessage: ChatMessage) => {
     if (
       targetMessage.senderId !== memberId
-      || targetMessage.type !== "TEXT"
+      || targetMessage.type === "SYSTEM"
       || targetMessage.deleted
       || deletingMessageId !== null
     ) {
       return;
     }
 
-    if (!window.confirm("이 메시지를 삭제하시겠습니까?")) return;
+    const isAttachmentMessage = targetMessage.type === "IMAGE"
+      || targetMessage.type === "FILE";
+    const confirmationMessage = isAttachmentMessage
+      ? "이 첨부파일 메시지를 삭제하시겠습니까? 삭제한 파일은 다시 다운로드할 수 없습니다."
+      : "이 메시지를 삭제하시겠습니까?";
+
+    if (!window.confirm(confirmationMessage)) return;
 
     setDeletingMessageId(targetMessage.messageId);
     setError("");
@@ -915,7 +1135,7 @@ export function ChatPage() {
         ...current,
         [targetMessage.roomId]: (current[targetMessage.roomId] ?? []).map((item) =>
           item.messageId === targetMessage.messageId
-            ? { ...item, content: null, deleted: true }
+            ? { ...item, content: null, attachment: null, deleted: true }
             : item,
         ),
       }));
@@ -1238,6 +1458,293 @@ export function ChatPage() {
     await handleLogout();
   };
 
+  const handleOpenMemberProfile = (
+    targetMemberId: number,
+    displayName: string,
+  ) => {
+    setIsMemberListOpen(false);
+    setFriendError("");
+
+    if (targetMemberId === memberId) {
+      setViewedMemberProfile(null);
+      setIsProfileModalOpen(true);
+      return;
+    }
+
+    const roomMember = roomMembers.find(
+      (candidate) => candidate.memberId === targetMemberId,
+    );
+
+    setIsProfileModalOpen(false);
+    setViewedMemberProfile({
+      memberId: targetMemberId,
+      displayName: roomMember?.displayName ?? displayName,
+      role: roomMember?.role ?? null,
+      joinedAt: roomMember?.joinedAt ?? null,
+      publicProfile: null,
+      isLoading: true,
+      error: "",
+    });
+
+    void memberApi.getPublicProfile(targetMemberId)
+      .then((profile) => {
+        setViewedMemberProfile((current) => current?.memberId === targetMemberId
+          ? {
+              ...current,
+              displayName: profile.displayName,
+              publicProfile: profile,
+              isLoading: false,
+            }
+          : current);
+      })
+      .catch((profileError) => {
+        setViewedMemberProfile((current) => current?.memberId === targetMemberId
+          ? {
+              ...current,
+              isLoading: false,
+              error: profileError instanceof Error
+                ? profileError.message
+                : "프로필을 불러오지 못했습니다.",
+            }
+          : current);
+      });
+  };
+
+  const refreshViewedMemberProfile = async (targetMemberId: number) => {
+    const profile = await memberApi.getPublicProfile(targetMemberId);
+    setViewedMemberProfile((current) => current?.memberId === targetMemberId
+      ? {
+          ...current,
+          displayName: profile.displayName,
+          publicProfile: profile,
+          isLoading: false,
+          error: "",
+        }
+      : current);
+  };
+
+  const handleRequestFriend = async (targetMemberId: number) => {
+    const operationKey = `request:${targetMemberId}`;
+    if (friendOperationKey) return;
+
+    setFriendOperationKey(operationKey);
+    setFriendError("");
+    setFriendNotice("");
+
+    try {
+      await friendApi.request(targetMemberId);
+      await Promise.all([
+        loadFriendData(),
+        refreshViewedMemberProfile(targetMemberId),
+      ]);
+      setFriendNotice("친구 요청을 보냈습니다.");
+    } catch (requestError) {
+      setFriendError(
+        requestError instanceof Error
+          ? requestError.message
+          : "친구 요청을 보내지 못했습니다.",
+      );
+    } finally {
+      setFriendOperationKey(null);
+    }
+  };
+
+  const handleAcceptFriendRequest = async (request: FriendRequestResponse) => {
+    const operationKey = `accept:${request.requestId}`;
+    if (friendOperationKey) return;
+
+    setFriendOperationKey(operationKey);
+    setFriendError("");
+    setFriendNotice("");
+
+    try {
+      await friendApi.acceptRequest(request.requestId);
+      await loadFriendData();
+      if (viewedMemberProfile?.memberId === request.targetMemberId) {
+        await refreshViewedMemberProfile(request.targetMemberId);
+      }
+      setFriendNotice(`${request.targetNickname}님과 친구가 되었습니다.`);
+    } catch (requestError) {
+      setFriendError(
+        requestError instanceof Error
+          ? requestError.message
+          : "친구 요청을 수락하지 못했습니다.",
+      );
+    } finally {
+      setFriendOperationKey(null);
+    }
+  };
+
+  const handleDeleteFriendRequest = async (
+    request: FriendRequestResponse,
+    direction: "sent" | "received",
+  ) => {
+    const operationKey = `delete:${request.requestId}`;
+    if (friendOperationKey) return;
+
+    setFriendOperationKey(operationKey);
+    setFriendError("");
+    setFriendNotice("");
+
+    try {
+      await friendApi.deleteRequest(request.requestId);
+      await loadFriendData();
+      if (viewedMemberProfile?.memberId === request.targetMemberId) {
+        await refreshViewedMemberProfile(request.targetMemberId);
+      }
+      setFriendNotice(direction === "sent"
+        ? "보낸 친구 요청을 취소했습니다."
+        : "받은 친구 요청을 거절했습니다.");
+    } catch (requestError) {
+      setFriendError(
+        requestError instanceof Error
+          ? requestError.message
+          : "친구 요청을 삭제하지 못했습니다.",
+      );
+    } finally {
+      setFriendOperationKey(null);
+    }
+  };
+
+  const handleOpenFriendRequests = (tab: "sent" | "received") => {
+    setViewedMemberProfile(null);
+    setActiveGalleryTab("friends");
+    setFriendPanelTab(tab);
+  };
+
+  const handleRequestUnfollow = (target: FriendRemovalTarget) => {
+    if (friendOperationKey) return;
+    setFriendError("");
+    setFriendRemovalTarget(target);
+  };
+
+  const handleConfirmUnfollow = async () => {
+    if (!friendRemovalTarget || friendOperationKey) return;
+
+    const target = friendRemovalTarget;
+    setFriendOperationKey(`unfollow:${target.memberId}`);
+    setFriendError("");
+    setFriendNotice("");
+
+    try {
+      await friendApi.unfollow(target.memberId);
+      await loadFriendData();
+      if (viewedMemberProfile?.memberId === target.memberId) {
+        await refreshViewedMemberProfile(target.memberId);
+      }
+      setFriendRemovalTarget(null);
+      setFriendNotice(`${target.displayName}님과의 친구 관계를 해제했습니다.`);
+    } catch (requestError) {
+      setFriendError(
+        requestError instanceof Error
+          ? requestError.message
+          : "친구 관계를 해제하지 못했습니다.",
+      );
+    } finally {
+      setFriendOperationKey(null);
+    }
+  };
+
+  const refreshMemberProfile = async () => {
+    const profile = await memberApi.getProfile();
+    setMemberProfile(profile);
+    setProfileImageRevision(Date.now());
+  };
+
+  const handleProfileImageChange = (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || isUpdatingProfileImage) return;
+
+    event.target.value = "";
+    setProfileImageError("");
+
+    if (file.type !== "image/jpeg" && file.type !== "image/png") {
+      setProfileImageError("JPEG 또는 PNG 이미지만 선택할 수 있습니다.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileImageError("프로필 사진은 5MB 이하만 선택할 수 있습니다.");
+      return;
+    }
+
+    setPendingProfileImage({
+      file,
+      previewUrl: URL.createObjectURL(file),
+    });
+    setProfileImageAction("upload");
+  };
+
+  const handleOpenProfileImageSource = () => {
+    if (isUpdatingProfileImage) return;
+
+    setProfileImageError("");
+    setIsProfileImageSourceOpen(true);
+  };
+
+  const handleSelectProfileImageUpload = () => {
+    setIsProfileImageSourceOpen(false);
+    profileImageInputRef.current?.click();
+  };
+
+  const handleRequestSocialProfileImage = () => {
+    setIsProfileImageSourceOpen(false);
+    setPendingProfileImage(null);
+    setProfileImageError("");
+    setProfileImageAction("social");
+  };
+
+  const handleRequestDeleteProfileImage = () => {
+    if (isUpdatingProfileImage) return;
+
+    setPendingProfileImage(null);
+    setProfileImageError("");
+    setProfileImageAction("delete");
+  };
+
+  const handleCloseProfileImageConfirmation = () => {
+    if (isUpdatingProfileImage) return;
+
+    setPendingProfileImage(null);
+    setProfileImageAction(null);
+  };
+
+  const handleConfirmProfileImageAction = async () => {
+    if (!profileImageAction || isUpdatingProfileImage) return;
+    if (profileImageAction === "upload" && !pendingProfileImage) return;
+
+    setIsUpdatingProfileImage(true);
+    setProfileImageError("");
+
+    try {
+      if (profileImageAction === "upload" && pendingProfileImage) {
+        await memberApi.uploadProfileImage(pendingProfileImage.file);
+      } else if (profileImageAction === "social") {
+        await memberApi.applySocialProfileImage("GOOGLE");
+      } else {
+        await memberApi.deleteProfileImage();
+      }
+
+      await refreshMemberProfile();
+      setPendingProfileImage(null);
+      setProfileImageAction(null);
+    } catch (requestError) {
+      setProfileImageError(
+        requestError instanceof Error
+          ? requestError.message
+          : profileImageAction === "upload"
+            ? "프로필 사진을 변경하지 못했습니다."
+            : profileImageAction === "social"
+              ? "Google 프로필 사진을 적용하지 못했습니다."
+              : "프로필 사진을 삭제하지 못했습니다.",
+      );
+    } finally {
+      setIsUpdatingProfileImage(false);
+    }
+  };
+
   const handleOpenCreateRoomModal = () => {
     setRoomCreationError("");
     setIsCreateRoomModalOpen(true);
@@ -1302,6 +1809,127 @@ export function ChatPage() {
   const handleToggleRoomMenu = () => {
     setIsMemberListOpen(false);
     setIsRoomMenuOpen((isOpen) => !isOpen);
+  };
+
+  const handleOpenInviteLinkModal = async () => {
+    if (!activeRoom) return;
+
+    setIsRoomMenuOpen(false);
+    setInviteTargetRoom(activeRoom);
+    setInviteLink(null);
+    setInviteError("");
+    setInviteNotice("");
+    setInviteOperation("loading");
+
+    try {
+      setInviteLink(await chatRoomApi.getInviteLink(activeRoom.roomId));
+    } catch (loadError) {
+      if (!(loadError instanceof ApiError && loadError.status === 404)) {
+        setInviteError(
+          loadError instanceof Error
+            ? loadError.message
+            : "초대 링크를 불러오지 못했습니다.",
+        );
+      }
+    } finally {
+      setInviteOperation(null);
+    }
+  };
+
+  const handleCloseInviteLinkModal = () => {
+    if (inviteOperation !== null) return;
+
+    setInviteTargetRoom(null);
+    setInviteLink(null);
+    setInviteError("");
+    setInviteNotice("");
+  };
+
+  const handleCreateInviteLink = async () => {
+    if (!inviteTargetRoom || inviteOperation !== null) return;
+
+    setInviteOperation("create");
+    setInviteError("");
+    setInviteNotice("");
+
+    try {
+      setInviteLink(await chatRoomApi.createInviteLink(
+        inviteTargetRoom.roomId,
+        { expiration: inviteExpiration },
+      ));
+      setInviteNotice("초대 링크를 생성했습니다.");
+    } catch (createError) {
+      setInviteError(
+        createError instanceof Error
+          ? createError.message
+          : "초대 링크를 생성하지 못했습니다.",
+      );
+    } finally {
+      setInviteOperation(null);
+    }
+  };
+
+  const handleReissueInviteLink = async () => {
+    if (!inviteTargetRoom || inviteOperation !== null) return;
+
+    setInviteOperation("reissue");
+    setInviteError("");
+    setInviteNotice("");
+
+    try {
+      setInviteLink(await chatRoomApi.reissueInviteLink(
+        inviteTargetRoom.roomId,
+        { expiration: inviteExpiration },
+      ));
+      setInviteNotice("초대 링크를 재발급했습니다.");
+    } catch (reissueError) {
+      setInviteError(
+        reissueError instanceof Error
+          ? reissueError.message
+          : "초대 링크를 재발급하지 못했습니다.",
+      );
+    } finally {
+      setInviteOperation(null);
+    }
+  };
+
+  const handleDeleteInviteLink = async () => {
+    if (!inviteTargetRoom || inviteOperation !== null) return;
+
+    setInviteOperation("delete");
+    setInviteError("");
+    setInviteNotice("");
+
+    try {
+      await chatRoomApi.deleteInviteLink(inviteTargetRoom.roomId);
+      setInviteLink(null);
+      setInviteNotice("초대 링크를 삭제했습니다.");
+    } catch (deleteError) {
+      setInviteError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "초대 링크를 삭제하지 못했습니다.",
+      );
+    } finally {
+      setInviteOperation(null);
+    }
+  };
+
+  const handleCopyInviteLink = async () => {
+    if (!inviteUrl || inviteOperation !== null) return;
+
+    setInviteOperation("copy");
+    setInviteError("");
+    setInviteNotice("");
+
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setInviteNotice("초대 링크를 복사했습니다.");
+    } catch {
+      setInviteError("초대 링크를 복사하지 못했습니다.");
+    } finally {
+      setInviteOperation(null);
+    }
   };
 
   const handleOpenOwnerTransferModal = (target: ChatRoomMemberResponse) => {
@@ -1601,7 +2229,7 @@ export function ChatPage() {
       className={[
         "chat-shell",
         `gallery-tab-${activeGalleryTab}`,
-        isChatOpen ? "" : "room-browser",
+        isChatOpen ? "chat-view-active" : "room-browser",
       ].filter(Boolean).join(" ")}
     >
       <aside className="chat-sidebar">
@@ -1643,7 +2271,11 @@ export function ChatPage() {
               aria-haspopup="dialog"
               aria-label="내 프로필 열기"
             >
-              <ProfileIcon />
+              <ChatAvatar
+                name={nickname}
+                imageUrl={ownProfileImageUrl}
+                className="profile-trigger-avatar"
+              />
               <span className="dashboard-action-label">whoami</span>
             </button>
           </div>
@@ -1882,31 +2514,224 @@ export function ChatPage() {
         )}
 
         {activeGalleryTab === "friends" && (
-          <section className="friends-empty-state">
+          <section className="friends-section" aria-label="친구">
             <TerminalTypedCommand command="friends --list" />
-            <motion.div
-              className="terminal-tab-output"
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 3 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.16, delay: prefersReducedMotion ? 0 : 0.2 }}
-            >
-              <span aria-hidden="true">•••</span>
-              <h2>친구 기능 준비 중</h2>
-              <p>친구 API가 연결되면 이 탭에서 친구 목록과 Direct Message를 제공할 예정입니다.</p>
-            </motion.div>
+            <nav className="friend-panel-tabs" aria-label="친구 목록 구분">
+              <button
+                className={friendPanelTab === "accepted" ? "active" : ""}
+                type="button"
+                onClick={() => setFriendPanelTab("accepted")}
+                aria-current={friendPanelTab === "accepted" ? "page" : undefined}
+              >
+                friends
+              </button>
+              <button
+                className={friendPanelTab === "received" ? "active" : ""}
+                type="button"
+                onClick={() => setFriendPanelTab("received")}
+                aria-current={friendPanelTab === "received" ? "page" : undefined}
+              >
+                requests --received
+                {receivedFriendRequests.content.length > 0 && (
+                  <span className="friend-request-signal" aria-label="받은 친구 요청 있음">●</span>
+                )}
+              </button>
+              <button
+                className={friendPanelTab === "sent" ? "active" : ""}
+                type="button"
+                onClick={() => setFriendPanelTab("sent")}
+                aria-current={friendPanelTab === "sent" ? "page" : undefined}
+              >
+                requests --sent
+              </button>
+            </nav>
+
+            {friendNotice && (
+              <p className="friend-notice" role="status">{friendNotice}</p>
+            )}
+            {friendError && (
+              <div className="friend-error" role="alert">
+                <p>{friendError}</p>
+                <button type="button" onClick={() => void loadFriendData()}>
+                  다시 시도
+                </button>
+              </div>
+            )}
+
+            {isLoadingFriendData && (
+              <p className="friend-list-status">친구 정보를 불러오는 중...</p>
+            )}
+
+            {!isLoadingFriendData && !friendError && friendPanelTab === "accepted" && (
+              <motion.div
+                className="terminal-friend-list"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 3 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.16 }}
+              >
+                {friends.length === 0 ? (
+                  <p className="friend-list-status">아직 연결된 친구가 없습니다.</p>
+                ) : friends.map((friend) => (
+                  <article className="terminal-friend-row" key={friend.memberId}>
+                    <button
+                      className="friend-identity-button"
+                      type="button"
+                      onClick={() => handleOpenMemberProfile(friend.memberId, friend.nickname)}
+                    >
+                      <ChatAvatar
+                        name={friend.nickname}
+                        imageUrl={memberApi.getProfileImageUrl(friend.memberId)}
+                        className="friend-list-avatar"
+                      />
+                      <span>
+                        <strong>{friend.nickname}</strong>
+                        <small>{friend.email}</small>
+                        {friend.statusMessage && <em>{friend.statusMessage}</em>}
+                      </span>
+                    </button>
+                    <button
+                      className="friend-row-action danger"
+                      type="button"
+                      onClick={() => handleRequestUnfollow({
+                        memberId: friend.memberId,
+                        displayName: friend.nickname,
+                      })}
+                      disabled={friendOperationKey !== null}
+                    >
+                      disconnect
+                    </button>
+                  </article>
+                ))}
+              </motion.div>
+            )}
+
+            {!isLoadingFriendData && !friendError && friendPanelTab === "received" && (
+              <div className="terminal-friend-list">
+                {receivedFriendRequests.content.length === 0 ? (
+                  <p className="friend-list-status">받은 친구 요청이 없습니다.</p>
+                ) : receivedFriendRequests.content.map((request) => (
+                  <article className="terminal-friend-row request" key={request.requestId}>
+                    <button
+                      className="friend-identity-button"
+                      type="button"
+                      onClick={() => handleOpenMemberProfile(
+                        request.targetMemberId,
+                        request.targetNickname,
+                      )}
+                    >
+                      <ChatAvatar
+                        name={request.targetNickname}
+                        imageUrl={memberApi.getProfileImageUrl(request.targetMemberId)}
+                        className="friend-list-avatar"
+                      />
+                      <span>
+                        <strong>{request.targetNickname}</strong>
+                        <small>
+                          received {friendRequestDateFormatter.format(new Date(request.createdAt))}
+                        </small>
+                      </span>
+                    </button>
+                    <div className="friend-request-actions">
+                      <button
+                        className="friend-row-action"
+                        type="button"
+                        onClick={() => void handleAcceptFriendRequest(request)}
+                        disabled={friendOperationKey !== null}
+                      >
+                        accept
+                      </button>
+                      <button
+                        className="friend-row-action danger"
+                        type="button"
+                        onClick={() => void handleDeleteFriendRequest(request, "received")}
+                        disabled={friendOperationKey !== null}
+                      >
+                        reject
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {receivedFriendRequests.hasNext && (
+                  <button
+                    className="friend-load-more"
+                    type="button"
+                    onClick={() => void loadMoreFriendRequests("received")}
+                    disabled={isLoadingMoreFriendRequests}
+                  >
+                    {isLoadingMoreFriendRequests ? "loading..." : "more --received"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!isLoadingFriendData && !friendError && friendPanelTab === "sent" && (
+              <div className="terminal-friend-list">
+                {sentFriendRequests.content.length === 0 ? (
+                  <p className="friend-list-status">보낸 친구 요청이 없습니다.</p>
+                ) : sentFriendRequests.content.map((request) => (
+                  <article className="terminal-friend-row request" key={request.requestId}>
+                    <button
+                      className="friend-identity-button"
+                      type="button"
+                      onClick={() => handleOpenMemberProfile(
+                        request.targetMemberId,
+                        request.targetNickname,
+                      )}
+                    >
+                      <ChatAvatar
+                        name={request.targetNickname}
+                        imageUrl={memberApi.getProfileImageUrl(request.targetMemberId)}
+                        className="friend-list-avatar"
+                      />
+                      <span>
+                        <strong>{request.targetNickname}</strong>
+                        <small>
+                          sent {friendRequestDateFormatter.format(new Date(request.createdAt))}
+                        </small>
+                      </span>
+                    </button>
+                    <button
+                      className="friend-row-action danger"
+                      type="button"
+                      onClick={() => void handleDeleteFriendRequest(request, "sent")}
+                      disabled={friendOperationKey !== null}
+                    >
+                      cancel
+                    </button>
+                  </article>
+                ))}
+                {sentFriendRequests.hasNext && (
+                  <button
+                    className="friend-load-more"
+                    type="button"
+                    onClick={() => void loadMoreFriendRequests("sent")}
+                    disabled={isLoadingMoreFriendRequests}
+                  >
+                    {isLoadingMoreFriendRequests ? "loading..." : "more --sent"}
+                  </button>
+                )}
+              </div>
+            )}
           </section>
         )}
 
       </aside>
 
       <section
-        ref={chatWorkspaceRef}
         className="chat-workspace"
         aria-hidden={!isChatOpen}
         inert={!isChatOpen}
       >
         <header className="chat-header">
           <div className="chat-room-heading">
+            <button
+              className="return-to-sessions-button"
+              type="button"
+              onClick={handleMinimizeRoom}
+              aria-label="채팅방 목록으로 돌아가기"
+            >
+              <span aria-hidden="true">←</span> sessions
+            </button>
             <span className="terminal-chat-command" aria-hidden="true">
               <strong>$</strong>
               <span>attach</span>
@@ -1972,16 +2797,28 @@ export function ChatPage() {
                       <ul className="members-list">
                         {roomMembers.map((roomMember) => (
                           <li key={roomMember.memberId}>
-                            <span className="member-list-avatar" aria-hidden="true">
-                              {roomMember.displayName.slice(-2).toUpperCase()}
-                            </span>
-                            <span className="member-list-identity">
-                              <strong>{roomMember.displayName}</strong>
-                              <small>
-                                {roomMember.role === "OWNER" ? "방장" : "멤버"}
-                                {roomMember.memberId === memberId ? " · 나" : ""}
-                              </small>
-                            </span>
+                            <button
+                              className="member-profile-trigger"
+                              type="button"
+                              onClick={() => handleOpenMemberProfile(
+                                roomMember.memberId,
+                                roomMember.displayName,
+                              )}
+                              aria-label={`${roomMember.displayName} 프로필 열기`}
+                            >
+                              <ChatAvatar
+                                name={roomMember.displayName}
+                                imageUrl={memberApi.getProfileImageUrl(roomMember.memberId)}
+                                className="member-list-avatar"
+                              />
+                              <span className="member-list-identity">
+                                <strong>{roomMember.displayName}</strong>
+                                <small>
+                                  {roomMember.role === "OWNER" ? "방장" : "멤버"}
+                                  {roomMember.memberId === memberId ? " · 나" : ""}
+                                </small>
+                              </span>
+                            </button>
                             {activeRoom.role === "OWNER"
                               && roomMember.role === "MEMBER"
                               && roomMember.memberId !== memberId && (
@@ -2050,6 +2887,21 @@ export function ChatPage() {
               {isRoomMenuOpen && activeRoom && (
                 <div className="room-menu-dropdown" id="chat-room-menu">
                   <p className="terminal-menu-command">$ room --menu</p>
+                  <button
+                    className="invite-link-menu-button"
+                    type="button"
+                    onClick={() => void handleOpenInviteLinkModal()}
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                      <path
+                        d="M8.2 11.8 11.8 8.2M6.4 13.6l-1.1 1.1a2.55 2.55 0 0 1-3.6-3.6l2.2-2.2a2.55 2.55 0 0 1 3.6 0M13.6 6.4l1.1-1.1a2.55 2.55 0 0 1 3.6 3.6l-2.2 2.2a2.55 2.55 0 0 1-3.6 0"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    초대 링크
+                  </button>
                   {activeRoom.role === "OWNER" && (
                     <>
                       <button
@@ -2246,12 +3098,13 @@ export function ChatPage() {
           {!emailVerified && <EmailVerificationPanel />}
         </div>
 
-        <div
-          className="message-list"
-          aria-live="polite"
-          ref={messageListRef}
-          onScroll={handleMessageListScroll}
-        >
+        <div className="message-list-shell">
+          <div
+            className="message-list"
+            aria-live="polite"
+            ref={messageListRef}
+            onScroll={handleMessageListScroll}
+          >
           {isLoadingRooms && (
             <div className="empty-chat">
               <span>•••</span>
@@ -2337,14 +3190,36 @@ export function ChatPage() {
                     data-message-id={item.messageId}
                   >
                     <div className="message-content">
-                      <ChatAvatar
-                        name={item.senderNickname ?? "알 수 없는 사용자"}
-                        className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
-                      />
+                      <button
+                        className="message-profile-trigger"
+                        type="button"
+                        onClick={() => item.senderId !== null && handleOpenMemberProfile(
+                          item.senderId,
+                          item.senderNickname ?? "알 수 없는 사용자",
+                        )}
+                        disabled={item.senderId === null}
+                        aria-label={`${item.senderNickname ?? "알 수 없는 사용자"} 프로필 열기`}
+                      >
+                        <ChatAvatar
+                          name={item.senderNickname ?? "알 수 없는 사용자"}
+                          imageUrl={item.senderId === null
+                            ? null
+                            : memberApi.getProfileImageUrl(item.senderId)}
+                          className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
+                        />
+                      </button>
                       <div className="terminal-prompt">
-                        <strong>
+                        <button
+                          className="message-author-name"
+                          type="button"
+                          onClick={() => item.senderId !== null && handleOpenMemberProfile(
+                            item.senderId,
+                            item.senderNickname ?? "알 수 없는 사용자",
+                          )}
+                          disabled={item.senderId === null}
+                        >
                           @veritas:{getTerminalIdentity(item.senderId, item.senderNickname)}$
-                        </strong>
+                        </button>
                       </div>
                       {editingMessageId === item.messageId ? (
                         <form
@@ -2445,20 +3320,64 @@ export function ChatPage() {
                     ].filter(Boolean).join(" ")}
                   >
                     <div className="message-content">
-                      <ChatAvatar
-                        name={item.senderNickname ?? "알 수 없는 사용자"}
-                        className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
-                      />
+                      <button
+                        className="message-profile-trigger"
+                        type="button"
+                        onClick={() => item.senderId !== null && handleOpenMemberProfile(
+                          item.senderId,
+                          item.senderNickname ?? "알 수 없는 사용자",
+                        )}
+                        disabled={item.senderId === null}
+                        aria-label={`${item.senderNickname ?? "알 수 없는 사용자"} 프로필 열기`}
+                      >
+                        <ChatAvatar
+                          name={item.senderNickname ?? "알 수 없는 사용자"}
+                          imageUrl={item.senderId === null
+                            ? null
+                            : memberApi.getProfileImageUrl(item.senderId)}
+                          className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
+                        />
+                      </button>
                       <div className="terminal-prompt">
-                        <strong>
+                        <button
+                          className="message-author-name"
+                          type="button"
+                          onClick={() => item.senderId !== null && handleOpenMemberProfile(
+                            item.senderId,
+                            item.senderNickname ?? "알 수 없는 사용자",
+                          )}
+                          disabled={item.senderId === null}
+                        >
                           @veritas:{getTerminalIdentity(item.senderId, item.senderNickname)}$
-                        </strong>
+                        </button>
                       </div>
                       <div className="message-bubble-row attachment-message-row">
                         <AttachmentMessageContent message={item} />
                         <time dateTime={item.createdAt}>
                           {formatMessageTime(item.createdAt)}
                         </time>
+                        {item.senderId === memberId && !item.deleted && (
+                          <span className="message-actions">
+                            <button
+                              className="message-delete-button"
+                              type="button"
+                              onClick={() => void handleDeleteMessage(item)}
+                              disabled={editingMessageId !== null || deletingMessageId !== null}
+                              aria-label="첨부파일 메시지 삭제"
+                              title="첨부파일 메시지 삭제"
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path
+                                  d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"
+                                  stroke="currentColor"
+                                  strokeWidth="1.7"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </button>
+                          </span>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -2466,7 +3385,20 @@ export function ChatPage() {
               </Fragment>
             );
           })}
-          <div ref={messageEndRef} />
+            <div ref={messageEndRef} />
+          </div>
+
+          {isScrollToBottomVisible && (
+            <button
+              className="scroll-to-bottom-button"
+              type="button"
+              onClick={handleScrollToBottom}
+              aria-label="마지막 메시지로 이동"
+              title="마지막 메시지로 이동"
+            >
+              <span aria-hidden="true">↓</span> latest
+            </button>
+          )}
         </div>
 
         <footer className="composer-area">
@@ -2487,6 +3419,7 @@ export function ChatPage() {
             />
             <ChatAvatar
               name={nickname}
+              imageUrl={ownProfileImageUrl}
               className="terminal-composer-avatar"
             />
             <span className="terminal-composer-prompt" aria-hidden="true">$</span>
@@ -2614,7 +3547,9 @@ export function ChatPage() {
               <div>
                 <p className="eyebrow">$ attachment --send</p>
                 <strong id="attachment-confirm-title">
-                  이 파일을 보내시겠습니까?
+                  {pendingAttachment.previewUrl
+                    ? "이 이미지를 보내시겠습니까?"
+                    : "이 파일을 보내시겠습니까?"}
                 </strong>
               </div>
               <button
@@ -2647,7 +3582,9 @@ export function ChatPage() {
                   </svg>
                 </span>
                 <div>
-                  <strong>{pendingAttachment.file.name}</strong>
+                  <strong title={pendingAttachment.file.name}>
+                    {pendingAttachment.file.name}
+                  </strong>
                   <small>{formatSelectedFileSize(pendingAttachment.file.size)}</small>
                 </div>
               </div>
@@ -2655,8 +3592,15 @@ export function ChatPage() {
 
             {pendingAttachment.previewUrl && (
               <div className="attachment-confirm-info">
-                <strong>{pendingAttachment.file.name}</strong>
-                <span>{formatSelectedFileSize(pendingAttachment.file.size)}</span>
+                <div className="attachment-confirm-name">
+                  <span>IMAGE</span>
+                  <strong title={pendingAttachment.file.name}>
+                    {pendingAttachment.file.name}
+                  </strong>
+                </div>
+                <span className="attachment-confirm-size">
+                  {formatSelectedFileSize(pendingAttachment.file.size)}
+                </span>
               </div>
             )}
 
@@ -2679,7 +3623,18 @@ export function ChatPage() {
                 onClick={() => void handleConfirmAttachment()}
                 disabled={isUploadingAttachment}
               >
-                {isUploadingAttachment ? "보내는 중..." : "보내기"}
+                <span>{isUploadingAttachment ? "보내는 중..." : "보내기"}</span>
+                {!isUploadingAttachment && (
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path
+                      d="m7.5 4.5 5.5 5.5-5.5 5.5M12.5 10H3.5"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
               </button>
             </footer>
           </section>
@@ -2908,6 +3863,293 @@ export function ChatPage() {
         </div>
       )}
 
+      {inviteTargetRoom && (
+        <div className="invite-link-modal" role="presentation">
+          <section
+            className="invite-link-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="invite-link-dialog-title"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">$ room --invite-link</p>
+                <h2 id="invite-link-dialog-title">{inviteTargetRoom.name}</h2>
+              </div>
+              <button
+                className="close-invite-link-button"
+                type="button"
+                onClick={handleCloseInviteLinkModal}
+                disabled={inviteOperation !== null}
+                aria-label="초대 링크 닫기"
+              >
+                ×
+              </button>
+            </header>
+
+            {inviteOperation === "loading" ? (
+              <p className="invite-link-status">초대 링크를 조회하고 있습니다...</p>
+            ) : (
+              <>
+                {inviteLink ? (
+                  <div className="invite-link-result">
+                    <label htmlFor="invite-link-value">INVITE_URL</label>
+                    <div>
+                      <input
+                        id="invite-link-value"
+                        type="text"
+                        value={inviteUrl}
+                        readOnly
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyInviteLink()}
+                        disabled={inviteOperation !== null}
+                      >
+                        {inviteOperation === "copy" ? "복사 중" : "복사"}
+                      </button>
+                    </div>
+                    <small>
+                      EXPIRES_AT {formatInviteExpiration(inviteLink.expiresAt)}
+                    </small>
+                  </div>
+                ) : (
+                  <p className="invite-link-status">
+                    현재 활성화된 초대 링크가 없습니다.
+                  </p>
+                )}
+
+                {inviteTargetRoom.role === "OWNER" && (
+                  <div className="invite-link-owner-controls">
+                    <label htmlFor="invite-link-expiration">EXPIRES_IN</label>
+                    <select
+                      id="invite-link-expiration"
+                      value={inviteExpiration}
+                      onChange={(event) => setInviteExpiration(
+                        event.target.value as InviteLinkExpiration,
+                      )}
+                      disabled={inviteOperation !== null}
+                    >
+                      <option value="ONE_DAY">1일</option>
+                      <option value="THREE_DAYS">3일</option>
+                      <option value="SEVEN_DAYS">7일</option>
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
+
+            {inviteNotice && (
+              <p className="invite-link-notice" role="status">{inviteNotice}</p>
+            )}
+            {inviteError && (
+              <p className="invite-link-error" role="alert">{inviteError}</p>
+            )}
+
+            <footer className="invite-link-actions">
+              <div>
+                {inviteTargetRoom.role === "OWNER" && inviteLink && (
+                  <button
+                    className="invite-link-delete-button"
+                    type="button"
+                    onClick={() => void handleDeleteInviteLink()}
+                    disabled={inviteOperation !== null}
+                  >
+                    {inviteOperation === "delete" ? "삭제 중..." : "링크 삭제"}
+                  </button>
+                )}
+              </div>
+              <div>
+                <button
+                  className="invite-link-cancel-button"
+                  type="button"
+                  onClick={handleCloseInviteLinkModal}
+                  disabled={inviteOperation !== null}
+                >
+                  닫기
+                </button>
+                {inviteTargetRoom.role === "OWNER" && (
+                  <button
+                    className="invite-link-primary-button"
+                    type="button"
+                    onClick={() => void (inviteLink
+                      ? handleReissueInviteLink()
+                      : handleCreateInviteLink())}
+                    disabled={inviteOperation !== null}
+                  >
+                    {inviteLink
+                      ? (inviteOperation === "reissue" ? "재발급 중..." : "링크 재발급")
+                      : (inviteOperation === "create" ? "생성 중..." : "링크 생성")}
+                  </button>
+                )}
+              </div>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {viewedMemberProfile && (
+        <div className="profile-modal" role="presentation">
+          <section
+            className="profile-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="member-profile-dialog-title"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">$ whois {viewedMemberProfile.displayName}</p>
+                <h2 id="member-profile-dialog-title">사용자 프로필</h2>
+              </div>
+              <button
+                className="close-profile-button"
+                type="button"
+                onClick={() => setViewedMemberProfile(null)}
+                aria-label="사용자 프로필 닫기"
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="profile-identity profile-identity-public">
+              <ChatAvatar
+                name={viewedMemberProfile.displayName}
+                imageUrl={memberApi.getProfileImageUrl(viewedMemberProfile.memberId)}
+                className="profile-identity-avatar"
+              />
+              <div className="profile-identity-main">
+                <div className="profile-identity-heading">
+                  <strong>{viewedMemberProfile.displayName}</strong>
+                  <span>
+                    {viewedMemberProfile.publicProfile
+                      ? getProfileRelationLabel(viewedMemberProfile.publicProfile.relationStatus)
+                      : "LOOKUP"}
+                  </span>
+                </div>
+                {viewedMemberProfile.isLoading && (
+                  <p className="public-profile-status">프로필을 조회하는 중...</p>
+                )}
+                {viewedMemberProfile.error && (
+                  <p className="public-profile-error" role="alert">
+                    {viewedMemberProfile.error}
+                  </p>
+                )}
+                {viewedMemberProfile.publicProfile?.statusMessage && (
+                  <p className="public-profile-message">
+                    {viewedMemberProfile.publicProfile.statusMessage}
+                  </p>
+                )}
+                {(viewedMemberProfile.role || viewedMemberProfile.joinedAt) && (
+                  <dl className="public-profile-details">
+                    {viewedMemberProfile.role && (
+                      <div>
+                        <dt>ROLE</dt>
+                        <dd>
+                          {viewedMemberProfile.role === "OWNER" ? "방장" : "멤버"}
+                        </dd>
+                      </div>
+                    )}
+                    {viewedMemberProfile.joinedAt && (
+                      <div>
+                        <dt>JOINED_AT</dt>
+                        <dd>{formatMemberJoinedAt(viewedMemberProfile.joinedAt)}</dd>
+                      </div>
+                    )}
+                  </dl>
+                )}
+              </div>
+            </div>
+
+            {friendError && (
+              <p className="public-profile-error" role="alert">{friendError}</p>
+            )}
+
+            <footer className="profile-dialog-footer public-profile-actions">
+              <span>
+                $ relation --status {viewedMemberProfile.publicProfile
+                  ? getProfileRelationLabel(viewedMemberProfile.publicProfile.relationStatus).toLowerCase()
+                  : "loading"}
+              </span>
+              {viewedMemberProfile.publicProfile?.status === "ACTIVE"
+                && viewedMemberProfile.publicProfile.relationStatus === "NONE" && (
+                  <button
+                    type="button"
+                    onClick={() => void handleRequestFriend(viewedMemberProfile.memberId)}
+                    disabled={friendOperationKey !== null}
+                  >
+                    {friendOperationKey === `request:${viewedMemberProfile.memberId}`
+                      ? "요청 중..."
+                      : "친구 요청"}
+                  </button>
+                )}
+              {viewedMemberProfile.publicProfile?.relationStatus === "PENDING_SENT" && (
+                <button type="button" onClick={() => handleOpenFriendRequests("sent")}>
+                  보낸 요청 확인
+                </button>
+              )}
+              {viewedMemberProfile.publicProfile?.relationStatus === "PENDING_RECEIVED" && (
+                <button type="button" onClick={() => handleOpenFriendRequests("received")}>
+                  받은 요청 확인
+                </button>
+              )}
+              {viewedMemberProfile.publicProfile?.relationStatus === "ACCEPTED" && (
+                <button
+                  className="public-profile-unfollow"
+                  type="button"
+                  onClick={() => handleRequestUnfollow({
+                    memberId: viewedMemberProfile.memberId,
+                    displayName: viewedMemberProfile.displayName,
+                  })}
+                  disabled={friendOperationKey !== null}
+                >
+                  친구 끊기
+                </button>
+              )}
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {friendRemovalTarget && (
+        <div className="profile-image-confirm-modal" role="presentation">
+          <section
+            className="profile-image-confirm-dialog friend-removal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="friend-removal-title"
+          >
+            <p className="eyebrow">$ friends --disconnect</p>
+            <h2 id="friend-removal-title">
+              {friendRemovalTarget.displayName}님과 친구 관계를 해제하시겠습니까?
+            </h2>
+            <p className="profile-image-confirm-description">
+              다시 연결하려면 새로운 친구 요청이 필요합니다.
+            </p>
+            {friendError && (
+              <p className="profile-image-error" role="alert">{friendError}</p>
+            )}
+            <footer>
+              <button
+                className="cancel-profile-image-button"
+                type="button"
+                onClick={() => setFriendRemovalTarget(null)}
+                disabled={friendOperationKey !== null}
+              >
+                취소
+              </button>
+              <button
+                className="confirm-profile-image-button is-delete"
+                type="button"
+                onClick={() => void handleConfirmUnfollow()}
+                disabled={friendOperationKey !== null}
+              >
+                {friendOperationKey?.startsWith("unfollow:") ? "처리 중..." : "친구 끊기"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
       {isProfileModalOpen && (
         <div className="profile-modal" role="presentation">
           <section
@@ -2925,38 +4167,207 @@ export function ChatPage() {
                 className="close-profile-button"
                 type="button"
                 onClick={() => setIsProfileModalOpen(false)}
+                disabled={isUpdatingProfileImage}
                 aria-label="프로필 닫기"
               >
                 ×
               </button>
             </header>
 
-            <div className="profile-summary">
-              <span className="profile-summary-icon" aria-hidden="true">
-                <ProfileIcon />
-              </span>
-              <strong>{nickname}</strong>
-              <small>{isConnected ? "온라인" : "연결 중"}</small>
+            <div className="profile-identity">
+              <ChatAvatar
+                name={nickname}
+                imageUrl={ownProfileImageUrl}
+                className="profile-identity-avatar"
+              />
+              <div className="profile-identity-main">
+                <div className="profile-identity-heading">
+                  <strong>{nickname}</strong>
+                  <span className={isConnected ? "is-online" : "is-connecting"}>
+                    {isConnected ? "온라인" : "연결 중"}
+                  </span>
+                </div>
+                <p className="profile-identity-email">
+                  {memberProfile?.email ?? "이메일 정보 없음"}
+                </p>
+                <p className="profile-identity-verification">
+                  <span>EMAIL_STATUS</span>
+                  <strong>{emailVerified ? "VERIFIED" : "UNVERIFIED"}</strong>
+                </p>
+                <div className="profile-photo-actions">
+                  <button
+                    className="profile-image-select-button"
+                    type="button"
+                    onClick={handleOpenProfileImageSource}
+                    disabled={isUpdatingProfileImage}
+                  >
+                    {isUpdatingProfileImage ? "처리 중..." : "사진 변경"}
+                  </button>
+                  {(memberProfile?.hasStoredProfileImage || memberProfile?.profileImageUrl) && (
+                    <button
+                      className="profile-image-delete-button"
+                      type="button"
+                      onClick={handleRequestDeleteProfileImage}
+                      disabled={isUpdatingProfileImage}
+                    >
+                      사진 삭제
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <dl className="profile-details">
-              <div>
-                <dt>EMAIL</dt>
-                <dd>{memberProfile?.email ?? "-"}</dd>
-              </div>
-              <div>
-                <dt>EMAIL_VERIFIED</dt>
-                <dd>{emailVerified ? "인증 완료" : "인증 필요"}</dd>
-              </div>
-            </dl>
+            <input
+              ref={profileImageInputRef}
+              className="profile-image-input"
+              type="file"
+              accept="image/jpeg,image/png"
+              onChange={handleProfileImageChange}
+            />
 
-            <button
-              className="profile-logout-button"
-              type="button"
-              onClick={() => void handleProfileLogout()}
-            >
-              로그아웃
-            </button>
+            {profileImageError && (
+              <p className="profile-image-error" role="alert">
+                {profileImageError}
+              </p>
+            )}
+
+            <Link className="profile-privacy-link" to="/privacy">
+              <span aria-hidden="true">[i]</span>
+              개인정보 안내
+              <span aria-hidden="true">→</span>
+            </Link>
+
+            <footer className="profile-dialog-footer">
+              <span>$ session --status active</span>
+              <button
+                className="profile-logout-button"
+                type="button"
+                onClick={() => void handleProfileLogout()}
+              >
+                <span aria-hidden="true">$</span> 로그아웃
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {isProfileImageSourceOpen && (
+        <div className="profile-image-confirm-modal" role="presentation">
+          <section
+            className="profile-image-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-image-source-title"
+          >
+            <p className="eyebrow">$ profile --image --source</p>
+            <h2 id="profile-image-source-title">프로필 사진을 선택하세요.</h2>
+            <p className="profile-image-confirm-description">
+              기기의 이미지를 업로드하거나 연결된 Google 계정의 프로필 사진을 사용할 수 있습니다.
+            </p>
+
+            <div className="profile-image-source-options">
+              <button type="button" onClick={handleSelectProfileImageUpload}>
+                <span aria-hidden="true">↑</span>
+                <strong>직접 업로드</strong>
+                <small>JPEG 또는 PNG · 최대 5MB</small>
+              </button>
+              <button type="button" onClick={handleRequestSocialProfileImage}>
+                <span aria-hidden="true">G</span>
+                <strong>Google 프로필</strong>
+                <small>연결된 계정의 사진 사용</small>
+              </button>
+            </div>
+
+            <footer>
+              <button
+                className="cancel-profile-image-button"
+                type="button"
+                onClick={() => setIsProfileImageSourceOpen(false)}
+              >
+                취소
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {profileImageAction && (
+        <div className="profile-image-confirm-modal" role="presentation">
+          <section
+            className="profile-image-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-image-confirm-title"
+          >
+            <p className="eyebrow">
+              {profileImageAction === "upload"
+                ? "$ profile --image --replace"
+                : profileImageAction === "social"
+                  ? "$ profile --image --google"
+                  : "$ profile --image --delete"}
+            </p>
+            <h2 id="profile-image-confirm-title">
+              {profileImageAction === "upload"
+                ? "이 사진으로 변경하시겠습니까?"
+                : profileImageAction === "social"
+                  ? "Google 프로필 사진을 사용하시겠습니까?"
+                  : "현재 프로필 사진을 삭제하시겠습니까?"}
+            </h2>
+
+            {profileImageAction === "upload" && pendingProfileImage && (
+              <div className="profile-image-preview">
+                <img src={pendingProfileImage.previewUrl} alt="선택한 프로필 사진 미리보기" />
+                <div>
+                  <strong>{pendingProfileImage.file.name}</strong>
+                  <small>{formatSelectedFileSize(pendingProfileImage.file.size)}</small>
+                </div>
+              </div>
+            )}
+
+            {profileImageAction === "delete" && (
+              <p className="profile-image-confirm-description">
+                삭제한 사진은 자동으로 복구되지 않습니다.
+              </p>
+            )}
+
+            {profileImageAction === "social" && (
+              <p className="profile-image-confirm-description">
+                현재 사진은 연결된 Google 계정에 저장된 프로필 사진으로 교체됩니다.
+              </p>
+            )}
+
+            {profileImageError && (
+              <p className="profile-image-error" role="alert">
+                {profileImageError}
+              </p>
+            )}
+
+            <footer>
+              <button
+                className="cancel-profile-image-button"
+                type="button"
+                onClick={handleCloseProfileImageConfirmation}
+                disabled={isUpdatingProfileImage}
+              >
+                취소
+              </button>
+              <button
+                className={profileImageAction === "delete"
+                  ? "confirm-profile-image-button is-delete"
+                  : "confirm-profile-image-button"}
+                type="button"
+                onClick={() => void handleConfirmProfileImageAction()}
+                disabled={isUpdatingProfileImage}
+              >
+                {isUpdatingProfileImage
+                  ? "처리 중..."
+                  : profileImageAction === "upload"
+                    ? "변경"
+                    : profileImageAction === "social"
+                      ? "Google 사진 적용"
+                      : "삭제"}
+              </button>
+            </footer>
           </section>
         </div>
       )}

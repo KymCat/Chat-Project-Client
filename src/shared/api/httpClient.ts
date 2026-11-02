@@ -145,6 +145,14 @@ export const httpClient = {
     }),
   postForm: <T>(path: string, body: FormData, options?: RequestOptions) =>
     send<T>(path, { ...options, method: "POST", body }),
+  putForm: <T>(path: string, body: FormData, options?: RequestOptions) =>
+    send<T>(path, { ...options, method: "PUT", body }),
+  put: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    send<T>(path, {
+      ...options,
+      method: "PUT",
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
   getBlob: async (path: string, options?: RequestOptions) =>
     readBlobResponse(await sendRequest(path, { ...options, method: "GET" })),
   patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>

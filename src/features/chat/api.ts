@@ -40,6 +40,18 @@ export interface ChatRoomNameUpdateRequest {
   name: string;
 }
 
+export type InviteLinkExpiration = "ONE_DAY" | "THREE_DAYS" | "SEVEN_DAYS";
+
+export interface ChatRoomInviteLinkRequest {
+  expiration: InviteLinkExpiration;
+}
+
+export interface ChatRoomInviteLinkResponse {
+  roomId: number;
+  token: string;
+  expiresAt: string;
+}
+
 export interface AttachmentResponse {
   attachmentId: number;
   originalName: string;
@@ -103,6 +115,30 @@ export const chatRoomApi = {
     httpClient.patch<void>(`/chat-rooms/${roomId}`, request),
   deleteRoom: (roomId: number) =>
     httpClient.delete<void>(`/chat-rooms/${roomId}`),
+  createInviteLink: (
+    roomId: number,
+    request: ChatRoomInviteLinkRequest,
+  ) => httpClient.post<ChatRoomInviteLinkResponse>(
+    `/chat-rooms/${roomId}/invite-links`,
+    request,
+  ),
+  getInviteLink: (roomId: number) =>
+    httpClient.get<ChatRoomInviteLinkResponse>(
+      `/chat-rooms/${roomId}/invite-links`,
+    ),
+  joinByInviteToken: (token: string) =>
+    httpClient.post<void>(
+      `/chat-rooms/invite-links/${encodeURIComponent(token)}/join`,
+    ),
+  deleteInviteLink: (roomId: number) =>
+    httpClient.delete<void>(`/chat-rooms/${roomId}/invite-links`),
+  reissueInviteLink: (
+    roomId: number,
+    request: ChatRoomInviteLinkRequest,
+  ) => httpClient.post<ChatRoomInviteLinkResponse>(
+    `/chat-rooms/${roomId}/invite-links/reissue`,
+    request,
+  ),
   uploadAttachment: (roomId: number, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
