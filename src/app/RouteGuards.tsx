@@ -13,7 +13,7 @@ interface LoadingScreenProps {
   onComplete?: () => void;
 }
 
-function LoadingScreen({ overlay = false, onComplete }: LoadingScreenProps) {
+export function LoadingScreen({ overlay = false, onComplete }: LoadingScreenProps) {
   const prefersReducedMotion = useReducedMotion();
   const [displayedText, setDisplayedText] = useState("");
 

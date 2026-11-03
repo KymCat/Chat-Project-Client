@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { chatRoomApi, type ChatMessage } from "./api";
 
 interface AttachmentMessageContentProps {
@@ -22,7 +22,7 @@ function saveBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-export function AttachmentMessageContent({
+export const AttachmentMessageContent = memo(function AttachmentMessageContent({
   message,
 }: AttachmentMessageContentProps) {
   const attachment = message.attachment;
@@ -32,9 +32,30 @@ export function AttachmentMessageContent({
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [shouldLoadImage, setShouldLoadImage] = useState(false);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!attachment || !isImage) return;
+    if (!("IntersectionObserver" in window)) {
+      setShouldLoadImage(true);
+      return;
+    }
+
+    const target = imageContainerRef.current;
+    if (!target) return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      setShouldLoadImage(true);
+      observer.disconnect();
+    }, { rootMargin: "300px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [attachment, isImage]);
+
+  useEffect(() => {
+    if (!attachment || !isImage || !shouldLoadImage) return;
 
     let disposed = false;
     let objectUrl = "";
@@ -61,7 +82,7 @@ export function AttachmentMessageContent({
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [attachment, isImage, message.roomId]);
+  }, [attachment, isImage, message.roomId, shouldLoadImage]);
 
   useEffect(() => {
     if (!isPreviewOpen) return;
@@ -102,7 +123,10 @@ export function AttachmentMessageContent({
   if (isImage) {
     return (
       <>
-        <div className="attachment-content image-attachment-content">
+        <div
+          ref={imageContainerRef}
+          className="attachment-content image-attachment-content"
+        >
           {imageUrl ? (
             <button
               className="attachment-image-button"
@@ -191,4 +215,4 @@ export function AttachmentMessageContent({
       {loadError && <small className="attachment-load-error">{loadError}</small>}
     </div>
   );
-}
+});

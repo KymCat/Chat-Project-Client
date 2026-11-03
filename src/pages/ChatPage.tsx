@@ -18,6 +18,7 @@ import { useAuth } from "../app/AuthProvider";
 import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
 import { AttachmentMessageContent } from "../features/chat/AttachmentMessageContent";
 import { ChatAvatar } from "../features/chat/ChatAvatar";
+import { MessageComposer } from "../features/chat/MessageComposer";
 import {
   chatRoomApi,
   type ChatMessage,
@@ -280,11 +281,18 @@ export function ChatPage() {
     useState<CursorPageResponse<FriendRequestResponse>>(emptyFriendRequestPage);
   const [receivedFriendRequests, setReceivedFriendRequests] =
     useState<CursorPageResponse<FriendRequestResponse>>(emptyFriendRequestPage);
-  const [isLoadingFriendData, setIsLoadingFriendData] = useState(false);
-  const [isLoadingMoreFriendRequests, setIsLoadingMoreFriendRequests] = useState(false);
-  const [friendError, setFriendError] = useState("");
+  const [isLoadingFriends, setIsLoadingFriends] = useState(false);
+  const [isLoadingSentFriendRequests, setIsLoadingSentFriendRequests] = useState(false);
+  const [isLoadingReceivedFriendRequests, setIsLoadingReceivedFriendRequests] = useState(false);
+  const [isLoadingMoreSentFriendRequests, setIsLoadingMoreSentFriendRequests] = useState(false);
+  const [isLoadingMoreReceivedFriendRequests, setIsLoadingMoreReceivedFriendRequests] = useState(false);
+  const [friendListError, setFriendListError] = useState("");
+  const [sentFriendRequestError, setSentFriendRequestError] = useState("");
+  const [receivedFriendRequestError, setReceivedFriendRequestError] = useState("");
+  const [friendProfileActionError, setFriendProfileActionError] = useState("");
+  const [friendRemovalError, setFriendRemovalError] = useState("");
   const [friendNotice, setFriendNotice] = useState("");
-  const [friendOperationKey, setFriendOperationKey] = useState<string | null>(null);
+  const [friendOperationKeys, setFriendOperationKeys] = useState<string[]>([]);
   const [friendRemovalTarget, setFriendRemovalTarget] =
     useState<FriendRemovalTarget | null>(null);
   const [roomAvatarPage, setRoomAvatarPage] = useState(0);
@@ -301,7 +309,6 @@ export function ChatPage() {
   const [leaveRoomError, setLeaveRoomError] = useState("");
   const [messagesByRoom, setMessagesByRoom] = useState<Record<number, ChatMessage[]>>({});
   const [messagePagesByRoom, setMessagePagesByRoom] = useState<Record<number, MessagePageState>>({});
-  const [message, setMessage] = useState("");
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [pendingAttachment, setPendingAttachment] =
     useState<PendingAttachment | null>(null);
@@ -320,6 +327,10 @@ export function ChatPage() {
     useState<ViewedMemberProfile | null>(null);
   const [memberProfile, setMemberProfile] =
     useState<MemberProfileResponse | null>(null);
+  const [isEditingStatusMessage, setIsEditingStatusMessage] = useState(false);
+  const [statusMessageDraft, setStatusMessageDraft] = useState("");
+  const [isSavingStatusMessage, setIsSavingStatusMessage] = useState(false);
+  const [statusMessageError, setStatusMessageError] = useState("");
   const [profileImageRevision, setProfileImageRevision] = useState(0);
   const [isUpdatingProfileImage, setIsUpdatingProfileImage] = useState(false);
   const [isProfileImageSourceOpen, setIsProfileImageSourceOpen] = useState(false);
@@ -372,7 +383,6 @@ export function ChatPage() {
   const [messageSearchError, setMessageSearchError] = useState("");
   const [isScrollToBottomVisible, setIsScrollToBottomVisible] = useState(false);
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
-  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const profileImageInputRef = useRef<HTMLInputElement>(null);
   const invitedRoomIdRef = useRef(readInvitedRoomId());
   const loadingMessageRoomIdsRef = useRef(new Set<number>());
@@ -389,6 +399,10 @@ export function ChatPage() {
   const isRecoveringConnectionRef = useRef(false);
   const messageSearchRequestIdRef = useRef(0);
   const pendingSearchScrollMessageIdRef = useRef<number | null>(null);
+  const friendListRequestIdRef = useRef(0);
+  const sentFriendRequestIdRef = useRef(0);
+  const receivedFriendRequestIdRef = useRef(0);
+  const receivedFriendRefreshRef = useRef<Promise<void> | null>(null);
 
   const claims = useMemo(
     () => (accessToken ? readAccessToken(accessToken) : null),
@@ -427,6 +441,23 @@ export function ChatPage() {
     () => rooms.reduce((total, room) => total + room.unreadCount, 0),
     [rooms],
   );
+  const roomSubscriptionKey = useMemo(
+    () => rooms.map((room) => room.roomId).join(","),
+    [rooms],
+  );
+  const activeFriendPanelError = friendPanelTab === "accepted"
+    ? friendListError
+    : friendPanelTab === "received"
+      ? receivedFriendRequestError
+      : sentFriendRequestError;
+  const isLoadingActiveFriendPanel = friendPanelTab === "accepted"
+    ? isLoadingFriends
+    : friendPanelTab === "received"
+      ? isLoadingReceivedFriendRequests
+      : isLoadingSentFriendRequests;
+  const isFriendRequestOperationRunning = (requestId: number) =>
+    friendOperationKeys.includes(`accept:${requestId}`)
+    || friendOperationKeys.includes(`delete:${requestId}`);
 
   const resetMessageSearch = useCallback(() => {
     messageSearchRequestIdRef.current += 1;
@@ -589,62 +620,157 @@ export function ChatPage() {
     }
   }, []);
 
-  const loadFriendData = useCallback(async () => {
-    setIsLoadingFriendData(true);
-    setFriendError("");
+  const loadFriends = useCallback(async (silent = false) => {
+    const requestId = ++friendListRequestIdRef.current;
+    if (!silent) setIsLoadingFriends(true);
+    if (!silent) setFriendListError("");
 
     try {
-      const [friendList, sentRequests, receivedRequests] = await Promise.all([
-        friendApi.getFriends(),
-        friendApi.getSentRequests(),
-        friendApi.getReceivedRequests(),
-      ]);
-
-      setFriends(friendList);
-      setSentFriendRequests(sentRequests);
-      setReceivedFriendRequests(receivedRequests);
+      const friendList = await friendApi.getFriends();
+      if (requestId === friendListRequestIdRef.current) {
+        setFriends(friendList);
+        setFriendListError("");
+      }
     } catch (loadError) {
-      setFriendError(
-        loadError instanceof Error
-          ? loadError.message
-          : "친구 정보를 불러오지 못했습니다.",
-      );
+      if (!silent && requestId === friendListRequestIdRef.current) {
+        setFriendListError(
+          loadError instanceof Error
+            ? loadError.message
+            : "친구 목록을 불러오지 못했습니다.",
+        );
+      }
     } finally {
-      setIsLoadingFriendData(false);
+      if (requestId === friendListRequestIdRef.current) {
+        setIsLoadingFriends(false);
+      }
     }
   }, []);
 
-  const loadMoreFriendRequests = async (direction: "sent" | "received") => {
-    if (isLoadingMoreFriendRequests) return;
-
-    const currentPage = direction === "sent"
-      ? sentFriendRequests
-      : receivedFriendRequests;
-    if (!currentPage.hasNext || currentPage.nextCursor === null) return;
-
-    setIsLoadingMoreFriendRequests(true);
-    setFriendError("");
+  const loadSentFriendRequests = useCallback(async (silent = false) => {
+    const requestId = ++sentFriendRequestIdRef.current;
+    if (!silent) setIsLoadingSentFriendRequests(true);
+    setIsLoadingMoreSentFriendRequests(false);
+    if (!silent) setSentFriendRequestError("");
 
     try {
-      const nextPage = direction === "sent"
+      const response = await friendApi.getSentRequests();
+      if (requestId === sentFriendRequestIdRef.current) {
+        setSentFriendRequests(response);
+        setSentFriendRequestError("");
+      }
+    } catch (loadError) {
+      if (!silent && requestId === sentFriendRequestIdRef.current) {
+        setSentFriendRequestError(
+          loadError instanceof Error
+            ? loadError.message
+            : "보낸 친구 요청을 불러오지 못했습니다.",
+        );
+      }
+    } finally {
+      if (requestId === sentFriendRequestIdRef.current) {
+        setIsLoadingSentFriendRequests(false);
+      }
+    }
+  }, []);
+
+  const loadReceivedFriendRequests = useCallback(async (silent = false) => {
+    const requestId = ++receivedFriendRequestIdRef.current;
+    if (!silent) setIsLoadingReceivedFriendRequests(true);
+    setIsLoadingMoreReceivedFriendRequests(false);
+    if (!silent) setReceivedFriendRequestError("");
+
+    try {
+      const response = await friendApi.getReceivedRequests();
+      if (requestId === receivedFriendRequestIdRef.current) {
+        setReceivedFriendRequests(response);
+        setReceivedFriendRequestError("");
+      }
+    } catch (loadError) {
+      if (!silent && requestId === receivedFriendRequestIdRef.current) {
+        setReceivedFriendRequestError(
+          loadError instanceof Error
+            ? loadError.message
+            : "받은 친구 요청을 불러오지 못했습니다.",
+        );
+      }
+    } finally {
+      if (requestId === receivedFriendRequestIdRef.current) {
+        setIsLoadingReceivedFriendRequests(false);
+      }
+    }
+  }, []);
+
+  const refreshReceivedFriendRequests = useCallback(() => {
+    if (receivedFriendRefreshRef.current) {
+      return receivedFriendRefreshRef.current;
+    }
+
+    const refresh = loadReceivedFriendRequests(true).finally(() => {
+      if (receivedFriendRefreshRef.current === refresh) {
+        receivedFriendRefreshRef.current = null;
+      }
+    });
+    receivedFriendRefreshRef.current = refresh;
+    return refresh;
+  }, [loadReceivedFriendRequests]);
+
+  const loadFriendPanel = useCallback((tab: FriendPanelTab, silent = false) => {
+    if (tab === "accepted") return loadFriends(silent);
+    if (tab === "received") return loadReceivedFriendRequests(silent);
+    return loadSentFriendRequests(silent);
+  }, [loadFriends, loadReceivedFriendRequests, loadSentFriendRequests]);
+
+  const loadMoreFriendRequests = async (direction: "sent" | "received") => {
+    const isSent = direction === "sent";
+    const currentPage = isSent ? sentFriendRequests : receivedFriendRequests;
+    const isLoading = isSent
+      ? isLoadingMoreSentFriendRequests
+      : isLoadingMoreReceivedFriendRequests;
+    if (isLoading || !currentPage.hasNext || currentPage.nextCursor === null) return;
+
+    const requestId = isSent
+      ? ++sentFriendRequestIdRef.current
+      : ++receivedFriendRequestIdRef.current;
+    const setLoading = isSent
+      ? setIsLoadingMoreSentFriendRequests
+      : setIsLoadingMoreReceivedFriendRequests;
+    const setError = isSent
+      ? setSentFriendRequestError
+      : setReceivedFriendRequestError;
+    const updatePage = isSent ? setSentFriendRequests : setReceivedFriendRequests;
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const nextPage = isSent
         ? await friendApi.getSentRequests(currentPage.nextCursor)
         : await friendApi.getReceivedRequests(currentPage.nextCursor);
-      const updatePage = direction === "sent"
-        ? setSentFriendRequests
-        : setReceivedFriendRequests;
+      const isLatest = isSent
+        ? requestId === sentFriendRequestIdRef.current
+        : requestId === receivedFriendRequestIdRef.current;
+      if (!isLatest) return;
 
       updatePage((current) => ({
         ...nextPage,
         content: [...current.content, ...nextPage.content],
       }));
     } catch (loadError) {
-      setFriendError(
-        loadError instanceof Error
-          ? loadError.message
-          : "친구 요청을 추가로 불러오지 못했습니다.",
-      );
+      const isLatest = isSent
+        ? requestId === sentFriendRequestIdRef.current
+        : requestId === receivedFriendRequestIdRef.current;
+      if (isLatest) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "친구 요청을 추가로 불러오지 못했습니다.",
+        );
+      }
     } finally {
-      setIsLoadingMoreFriendRequests(false);
+      const isLatest = isSent
+        ? requestId === sentFriendRequestIdRef.current
+        : requestId === receivedFriendRequestIdRef.current;
+      if (isLatest) setLoading(false);
     }
   };
 
@@ -747,8 +873,13 @@ export function ChatPage() {
       setFriends([]);
       setSentFriendRequests(emptyFriendRequestPage);
       setReceivedFriendRequests(emptyFriendRequestPage);
-      setFriendError("");
+      setFriendListError("");
+      setSentFriendRequestError("");
+      setReceivedFriendRequestError("");
+      setFriendProfileActionError("");
+      setFriendRemovalError("");
       setFriendNotice("");
+      setFriendOperationKeys([]);
       setRooms([]);
       setActiveRoomId(null);
       setOpenRoomIds([]);
@@ -782,13 +913,74 @@ export function ChatPage() {
       window.history.replaceState({}, document.title, "/chat");
     });
     void loadAvailableRooms();
-  }, [accessToken, loadAvailableRooms, loadRooms]);
+    void refreshReceivedFriendRequests();
+  }, [
+    accessToken,
+    loadAvailableRooms,
+    loadRooms,
+    refreshReceivedFriendRequests,
+  ]);
 
   useEffect(() => {
     if (!accessToken || activeGalleryTab !== "friends") return;
 
-    void loadFriendData();
-  }, [accessToken, activeGalleryTab, loadFriendData]);
+    void loadFriendPanel(friendPanelTab);
+    if (friendPanelTab !== "received") {
+      void refreshReceivedFriendRequests();
+    }
+  }, [
+    accessToken,
+    activeGalleryTab,
+    friendPanelTab,
+    loadFriendPanel,
+    refreshReceivedFriendRequests,
+  ]);
+
+  useEffect(() => {
+    if (!friendNotice) return;
+
+    const timeoutId = window.setTimeout(() => setFriendNotice(""), 3_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [friendNotice]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const refreshVisibleFriendPanel = () => {
+      if (document.visibilityState !== "visible") return;
+
+      if (activeGalleryTab === "friends" && friendPanelTab !== "received") {
+        void loadFriendPanel(friendPanelTab, true);
+      }
+      void refreshReceivedFriendRequests();
+    };
+
+    window.addEventListener("focus", refreshVisibleFriendPanel);
+    document.addEventListener("visibilitychange", refreshVisibleFriendPanel);
+
+    return () => {
+      window.removeEventListener("focus", refreshVisibleFriendPanel);
+      document.removeEventListener("visibilitychange", refreshVisibleFriendPanel);
+    };
+  }, [
+    accessToken,
+    activeGalleryTab,
+    friendPanelTab,
+    loadFriendPanel,
+    refreshReceivedFriendRequests,
+  ]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refreshReceivedFriendRequests();
+      }
+    }, 20_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [accessToken, refreshReceivedFriendRequests]);
 
   useEffect(() => {
     if (
@@ -876,7 +1068,6 @@ export function ChatPage() {
           setOwnerTransferTarget(null);
           setRenameTargetRoom(null);
           setDeleteTargetRoom(null);
-          setMessage("");
           setDeletedRoomNotice({ roomId: event.roomId, roomName });
           return;
         }
@@ -913,10 +1104,11 @@ export function ChatPage() {
   }, [roomEventToast]);
 
   useEffect(() => {
-    chatRef.current?.syncSubscriptions(
-      rooms.map((room) => room.roomId),
-    );
-  }, [rooms]);
+    const roomIds = roomSubscriptionKey
+      ? roomSubscriptionKey.split(",").map(Number)
+      : [];
+    chatRef.current?.syncSubscriptions(roomIds);
+  }, [roomSubscriptionKey]);
 
   useLayoutEffect(() => {
     const messageId = pendingSearchScrollMessageIdRef.current;
@@ -1033,19 +1225,16 @@ export function ChatPage() {
     }
   };
 
-  const handleSend = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const content = message.trim();
-    if (!content) return;
-
+  const handleSend = (content: string) => {
     try {
-      if (activeRoomId === null) return;
+      if (activeRoomId === null) return false;
 
       chatRef.current?.send(activeRoomId, content);
-      setMessage("");
       setError("");
+      return true;
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "메시지 전송에 실패했습니다.");
+      return false;
     }
   };
 
@@ -1377,7 +1566,6 @@ export function ChatPage() {
         roomName: deleteTargetRoom.name ?? "채팅방",
       });
       setDeleteTargetRoom(null);
-      setMessage("");
     } catch (deleteError) {
       setDeleteRoomError(
         deleteError instanceof Error
@@ -1401,7 +1589,6 @@ export function ChatPage() {
       setIsChatOpen(false);
       setRoomMembers([]);
       setMemberListError("");
-      setMessage("");
       setError("");
     }
     setDeletedRoomNotice(null);
@@ -1430,7 +1617,6 @@ export function ChatPage() {
         delete next[roomId];
         return next;
       });
-      setMessage("");
       setError("");
       setLeaveTargetRoom(null);
       await loadAvailableRooms();
@@ -1458,16 +1644,23 @@ export function ChatPage() {
     await handleLogout();
   };
 
+  const handleOpenOwnProfile = () => {
+    setViewedMemberProfile(null);
+    setIsEditingStatusMessage(false);
+    setStatusMessageDraft(memberProfile?.statusMessage ?? "");
+    setStatusMessageError("");
+    setIsProfileModalOpen(true);
+  };
+
   const handleOpenMemberProfile = (
     targetMemberId: number,
     displayName: string,
   ) => {
     setIsMemberListOpen(false);
-    setFriendError("");
+    setFriendProfileActionError("");
 
     if (targetMemberId === memberId) {
-      setViewedMemberProfile(null);
-      setIsProfileModalOpen(true);
+      handleOpenOwnProfile();
       return;
     }
 
@@ -1511,67 +1704,90 @@ export function ChatPage() {
   };
 
   const refreshViewedMemberProfile = async (targetMemberId: number) => {
-    const profile = await memberApi.getPublicProfile(targetMemberId);
-    setViewedMemberProfile((current) => current?.memberId === targetMemberId
-      ? {
-          ...current,
-          displayName: profile.displayName,
-          publicProfile: profile,
-          isLoading: false,
-          error: "",
-        }
-      : current);
+    try {
+      const profile = await memberApi.getPublicProfile(targetMemberId);
+      setViewedMemberProfile((current) => current?.memberId === targetMemberId
+        ? {
+            ...current,
+            displayName: profile.displayName,
+            publicProfile: profile,
+            isLoading: false,
+            error: "",
+          }
+        : current);
+    } catch (profileError) {
+      setViewedMemberProfile((current) => current?.memberId === targetMemberId
+        ? {
+            ...current,
+            error: profileError instanceof Error
+              ? profileError.message
+              : "프로필을 갱신하지 못했습니다.",
+          }
+        : current);
+    }
   };
 
   const handleRequestFriend = async (targetMemberId: number) => {
     const operationKey = `request:${targetMemberId}`;
-    if (friendOperationKey) return;
+    if (friendOperationKeys.includes(operationKey)) return;
 
-    setFriendOperationKey(operationKey);
-    setFriendError("");
+    setFriendOperationKeys((current) => [...current, operationKey]);
+    setFriendProfileActionError("");
     setFriendNotice("");
 
     try {
       await friendApi.request(targetMemberId);
-      await Promise.all([
-        loadFriendData(),
-        refreshViewedMemberProfile(targetMemberId),
-      ]);
+      setViewedMemberProfile((current) => current?.memberId === targetMemberId
+        && current.publicProfile
+        ? {
+            ...current,
+            publicProfile: {
+              ...current.publicProfile,
+              relationStatus: "PENDING_SENT",
+            },
+          }
+        : current);
+      void loadSentFriendRequests(true);
       setFriendNotice("친구 요청을 보냈습니다.");
     } catch (requestError) {
-      setFriendError(
+      setFriendProfileActionError(
         requestError instanceof Error
           ? requestError.message
           : "친구 요청을 보내지 못했습니다.",
       );
     } finally {
-      setFriendOperationKey(null);
+      setFriendOperationKeys((current) => current.filter((key) => key !== operationKey));
     }
   };
 
   const handleAcceptFriendRequest = async (request: FriendRequestResponse) => {
     const operationKey = `accept:${request.requestId}`;
-    if (friendOperationKey) return;
+    if (isFriendRequestOperationRunning(request.requestId)) return;
 
-    setFriendOperationKey(operationKey);
-    setFriendError("");
+    setFriendOperationKeys((current) => [...current, operationKey]);
+    setReceivedFriendRequestError("");
     setFriendNotice("");
 
     try {
       await friendApi.acceptRequest(request.requestId);
-      await loadFriendData();
+      setReceivedFriendRequests((current) => ({
+        ...current,
+        content: current.content.filter((item) => item.requestId !== request.requestId),
+      }));
+      void loadReceivedFriendRequests(true);
+      void loadFriends(true);
       if (viewedMemberProfile?.memberId === request.targetMemberId) {
-        await refreshViewedMemberProfile(request.targetMemberId);
+        void refreshViewedMemberProfile(request.targetMemberId);
       }
       setFriendNotice(`${request.targetNickname}님과 친구가 되었습니다.`);
     } catch (requestError) {
-      setFriendError(
+      setReceivedFriendRequestError(
         requestError instanceof Error
           ? requestError.message
           : "친구 요청을 수락하지 못했습니다.",
       );
     } finally {
-      setFriendOperationKey(null);
+      setFriendOperationKeys((current) => current.filter((key) => key !== operationKey));
     }
   };
 
@@ -1580,68 +1796,79 @@ export function ChatPage() {
     direction: "sent" | "received",
   ) => {
     const operationKey = `delete:${request.requestId}`;
-    if (friendOperationKey) return;
+    if (isFriendRequestOperationRunning(request.requestId)) return;
 
-    setFriendOperationKey(operationKey);
-    setFriendError("");
+    setFriendOperationKeys((current) => [...current, operationKey]);
+    const setRequestError = direction === "sent"
+      ? setSentFriendRequestError
+      : setReceivedFriendRequestError;
+    setRequestError("");
     setFriendNotice("");
 
     try {
       await friendApi.deleteRequest(request.requestId);
-      await loadFriendData();
+      const updateRequests = direction === "sent"
+        ? setSentFriendRequests
+        : setReceivedFriendRequests;
+      updateRequests((current) => ({
+        ...current,
+        content: current.content.filter((item) => item.requestId !== request.requestId),
+      }));
+      if (direction === "sent") {
+        void loadSentFriendRequests(true);
+      } else {
+        void loadReceivedFriendRequests(true);
+      }
       if (viewedMemberProfile?.memberId === request.targetMemberId) {
-        await refreshViewedMemberProfile(request.targetMemberId);
+        void refreshViewedMemberProfile(request.targetMemberId);
       }
       setFriendNotice(direction === "sent"
         ? "보낸 친구 요청을 취소했습니다."
         : "받은 친구 요청을 거절했습니다.");
     } catch (requestError) {
-      setFriendError(
+      setRequestError(
         requestError instanceof Error
           ? requestError.message
           : "친구 요청을 삭제하지 못했습니다.",
       );
     } finally {
-      setFriendOperationKey(null);
+      setFriendOperationKeys((current) => current.filter((key) => key !== operationKey));
     }
   };
 
-  const handleOpenFriendRequests = (tab: "sent" | "received") => {
-    setViewedMemberProfile(null);
-    setActiveGalleryTab("friends");
-    setFriendPanelTab(tab);
-  };
-
   const handleRequestUnfollow = (target: FriendRemovalTarget) => {
-    if (friendOperationKey) return;
-    setFriendError("");
+    setFriendRemovalError("");
     setFriendRemovalTarget(target);
   };
 
   const handleConfirmUnfollow = async () => {
-    if (!friendRemovalTarget || friendOperationKey) return;
+    if (!friendRemovalTarget) return;
 
     const target = friendRemovalTarget;
-    setFriendOperationKey(`unfollow:${target.memberId}`);
-    setFriendError("");
+    const operationKey = `unfollow:${target.memberId}`;
+    if (friendOperationKeys.includes(operationKey)) return;
+
+    setFriendOperationKeys((current) => [...current, operationKey]);
+    setFriendRemovalError("");
     setFriendNotice("");
 
     try {
       await friendApi.unfollow(target.memberId);
-      await loadFriendData();
+      setFriends((current) => current.filter((friend) => friend.memberId !== target.memberId));
+      void loadFriends(true);
       if (viewedMemberProfile?.memberId === target.memberId) {
-        await refreshViewedMemberProfile(target.memberId);
+        void refreshViewedMemberProfile(target.memberId);
       }
       setFriendRemovalTarget(null);
       setFriendNotice(`${target.displayName}님과의 친구 관계를 해제했습니다.`);
     } catch (requestError) {
-      setFriendError(
+      setFriendRemovalError(
         requestError instanceof Error
           ? requestError.message
           : "친구 관계를 해제하지 못했습니다.",
       );
     } finally {
-      setFriendOperationKey(null);
+      setFriendOperationKeys((current) => current.filter((key) => key !== operationKey));
     }
   };
 
@@ -1649,6 +1876,42 @@ export function ChatPage() {
     const profile = await memberApi.getProfile();
     setMemberProfile(profile);
     setProfileImageRevision(Date.now());
+  };
+
+  const handleStartStatusMessageEdit = () => {
+    setStatusMessageDraft(memberProfile?.statusMessage ?? "");
+    setStatusMessageError("");
+    setIsEditingStatusMessage(true);
+  };
+
+  const handleCancelStatusMessageEdit = () => {
+    if (isSavingStatusMessage) return;
+    setStatusMessageDraft(memberProfile?.statusMessage ?? "");
+    setStatusMessageError("");
+    setIsEditingStatusMessage(false);
+  };
+
+  const handleSaveStatusMessage = async () => {
+    if (isSavingStatusMessage) return;
+
+    const normalizedStatusMessage = statusMessageDraft.trim();
+    setIsSavingStatusMessage(true);
+    setStatusMessageError("");
+
+    try {
+      await memberApi.updateStatusMessage(normalizedStatusMessage || null);
+      await refreshMemberProfile();
+      setStatusMessageDraft(normalizedStatusMessage);
+      setIsEditingStatusMessage(false);
+    } catch (requestError) {
+      setStatusMessageError(
+        requestError instanceof Error
+          ? requestError.message
+          : "상태 메시지를 변경하지 못했습니다.",
+      );
+    } finally {
+      setIsSavingStatusMessage(false);
+    }
   };
 
   const handleProfileImageChange = (
@@ -2161,6 +2424,53 @@ export function ChatPage() {
     setIsChatOpen(false);
   }, []);
 
+  const handleSelectGalleryTab = (tab: ChatGalleryTab) => {
+    if (isChatOpenRef.current) {
+      handleMinimizeRoom();
+    }
+
+    setViewedMemberProfile(null);
+    setFriendNotice("");
+    setActiveGalleryTab(tab);
+
+    if (tab === "friends" && activeGalleryTab === "friends") {
+      void loadFriendPanel(friendPanelTab);
+      if (friendPanelTab !== "received") {
+        void loadReceivedFriendRequests(true);
+      }
+    }
+  };
+
+  const handleSelectFriendPanel = (tab: FriendPanelTab) => {
+    setFriendNotice("");
+
+    if (tab === friendPanelTab) {
+      void loadFriendPanel(tab);
+      return;
+    }
+
+    setFriendPanelTab(tab);
+  };
+
+  const handleOpenFriendRequests = (tab: "sent" | "received") => {
+    const shouldRefreshCurrentPanel = activeGalleryTab === "friends"
+      && friendPanelTab === tab;
+
+    if (isChatOpenRef.current) {
+      handleMinimizeRoom();
+    }
+
+    setViewedMemberProfile(null);
+    setFriendNotice("");
+    setActiveGalleryTab("friends");
+
+    if (shouldRefreshCurrentPanel) {
+      void loadFriendPanel(tab);
+    } else if (friendPanelTab !== tab) {
+      setFriendPanelTab(tab);
+    }
+  };
+
   const handleOpenRoom = (roomId: number) => {
     if (activeRoomIdRef.current === roomId && isChatOpenRef.current) {
       handleMinimizeRoom();
@@ -2190,7 +2500,6 @@ export function ChatPage() {
     isChatOpenRef.current = false;
     setActiveRoomId(null);
     setIsChatOpen(false);
-    setMessage("");
     setError("");
   };
 
@@ -2267,7 +2576,7 @@ export function ChatPage() {
             <button
               className="profile-trigger gallery-profile-trigger"
               type="button"
-              onClick={() => setIsProfileModalOpen(true)}
+              onClick={handleOpenOwnProfile}
               aria-haspopup="dialog"
               aria-label="내 프로필 열기"
             >
@@ -2285,7 +2594,7 @@ export function ChatPage() {
           <button
             className={activeGalleryTab === "joined" ? "active" : ""}
             type="button"
-            onClick={() => setActiveGalleryTab("joined")}
+            onClick={() => handleSelectGalleryTab("joined")}
             aria-label="참여 중인 채팅방"
             aria-current={activeGalleryTab === "joined" ? "page" : undefined}
           >
@@ -2304,7 +2613,7 @@ export function ChatPage() {
           <button
             className={activeGalleryTab === "available" ? "active" : ""}
             type="button"
-            onClick={() => setActiveGalleryTab("available")}
+            onClick={() => handleSelectGalleryTab("available")}
             aria-label="참여 가능한 채팅방"
             aria-current={activeGalleryTab === "available" ? "page" : undefined}
           >
@@ -2318,8 +2627,10 @@ export function ChatPage() {
           <button
             className={activeGalleryTab === "friends" ? "active" : ""}
             type="button"
-            onClick={() => setActiveGalleryTab("friends")}
-            aria-label="친구"
+            onClick={() => handleSelectGalleryTab("friends")}
+            aria-label={receivedFriendRequests.content.length > 0
+              ? "친구, 받은 친구 요청 있음"
+              : "친구"}
             aria-current={activeGalleryTab === "friends" ? "page" : undefined}
           >
             {activeGalleryTab === "friends" && <motion.span className="chat-tab-indicator" layoutId="chat-gallery-tab" />}
@@ -2327,6 +2638,12 @@ export function ChatPage() {
               <path d="M14 19v-1.2c0-2.1-1.7-3.8-3.8-3.8H6.8A3.8 3.8 0 0 0 3 17.8V19M8.5 10.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM17 11a3 3 0 1 0 0-6M17 14c2.3 0 4 1.7 4 4v1" />
             </svg>
             <span className="chat-tab-command">friends --list</span>
+            {receivedFriendRequests.content.length > 0 && (
+              <span
+                className="friend-request-signal top-level"
+                aria-label="받은 친구 요청 있음"
+              />
+            )}
             <span className="chat-tab-tooltip">친구</span>
           </button>
         </nav>
@@ -2520,7 +2837,7 @@ export function ChatPage() {
               <button
                 className={friendPanelTab === "accepted" ? "active" : ""}
                 type="button"
-                onClick={() => setFriendPanelTab("accepted")}
+                onClick={() => handleSelectFriendPanel("accepted")}
                 aria-current={friendPanelTab === "accepted" ? "page" : undefined}
               >
                 friends
@@ -2528,18 +2845,21 @@ export function ChatPage() {
               <button
                 className={friendPanelTab === "received" ? "active" : ""}
                 type="button"
-                onClick={() => setFriendPanelTab("received")}
+                onClick={() => handleSelectFriendPanel("received")}
                 aria-current={friendPanelTab === "received" ? "page" : undefined}
               >
                 requests --received
                 {receivedFriendRequests.content.length > 0 && (
-                  <span className="friend-request-signal" aria-label="받은 친구 요청 있음">●</span>
+                  <span
+                    className="friend-request-signal"
+                    aria-label="받은 친구 요청 있음"
+                  />
                 )}
               </button>
               <button
                 className={friendPanelTab === "sent" ? "active" : ""}
                 type="button"
-                onClick={() => setFriendPanelTab("sent")}
+                onClick={() => handleSelectFriendPanel("sent")}
                 aria-current={friendPanelTab === "sent" ? "page" : undefined}
               >
                 requests --sent
@@ -2549,20 +2869,20 @@ export function ChatPage() {
             {friendNotice && (
               <p className="friend-notice" role="status">{friendNotice}</p>
             )}
-            {friendError && (
+            {activeFriendPanelError && (
               <div className="friend-error" role="alert">
-                <p>{friendError}</p>
-                <button type="button" onClick={() => void loadFriendData()}>
+                <p>{activeFriendPanelError}</p>
+                <button type="button" onClick={() => void loadFriendPanel(friendPanelTab)}>
                   다시 시도
                 </button>
               </div>
             )}
 
-            {isLoadingFriendData && (
+            {isLoadingActiveFriendPanel && (
               <p className="friend-list-status">친구 정보를 불러오는 중...</p>
             )}
 
-            {!isLoadingFriendData && !friendError && friendPanelTab === "accepted" && (
+            {!isLoadingActiveFriendPanel && !activeFriendPanelError && friendPanelTab === "accepted" && (
               <motion.div
                 className="terminal-friend-list"
                 initial={prefersReducedMotion ? false : { opacity: 0, y: 3 }}
@@ -2585,8 +2905,9 @@ export function ChatPage() {
                       />
                       <span>
                         <strong>{friend.nickname}</strong>
-                        <small>{friend.email}</small>
-                        {friend.statusMessage && <em>{friend.statusMessage}</em>}
+                        <small>
+                          {friend.statusMessage?.trim() || "상태 메시지 없음"}
+                        </small>
                       </span>
                     </button>
                     <button
@@ -2596,7 +2917,7 @@ export function ChatPage() {
                         memberId: friend.memberId,
                         displayName: friend.nickname,
                       })}
-                      disabled={friendOperationKey !== null}
+                      disabled={friendOperationKeys.includes(`unfollow:${friend.memberId}`)}
                     >
                       disconnect
                     </button>
@@ -2605,7 +2926,7 @@ export function ChatPage() {
               </motion.div>
             )}
 
-            {!isLoadingFriendData && !friendError && friendPanelTab === "received" && (
+            {!isLoadingActiveFriendPanel && !activeFriendPanelError && friendPanelTab === "received" && (
               <div className="terminal-friend-list">
                 {receivedFriendRequests.content.length === 0 ? (
                   <p className="friend-list-status">받은 친구 요청이 없습니다.</p>
@@ -2636,7 +2957,7 @@ export function ChatPage() {
                         className="friend-row-action"
                         type="button"
                         onClick={() => void handleAcceptFriendRequest(request)}
-                        disabled={friendOperationKey !== null}
+                        disabled={isFriendRequestOperationRunning(request.requestId)}
                       >
                         accept
                       </button>
@@ -2644,7 +2965,7 @@ export function ChatPage() {
                         className="friend-row-action danger"
                         type="button"
                         onClick={() => void handleDeleteFriendRequest(request, "received")}
-                        disabled={friendOperationKey !== null}
+                        disabled={isFriendRequestOperationRunning(request.requestId)}
                       >
                         reject
                       </button>
@@ -2656,15 +2977,15 @@ export function ChatPage() {
                     className="friend-load-more"
                     type="button"
                     onClick={() => void loadMoreFriendRequests("received")}
-                    disabled={isLoadingMoreFriendRequests}
+                    disabled={isLoadingMoreReceivedFriendRequests}
                   >
-                    {isLoadingMoreFriendRequests ? "loading..." : "more --received"}
+                    {isLoadingMoreReceivedFriendRequests ? "loading..." : "more --received"}
                   </button>
                 )}
               </div>
             )}
 
-            {!isLoadingFriendData && !friendError && friendPanelTab === "sent" && (
+            {!isLoadingActiveFriendPanel && !activeFriendPanelError && friendPanelTab === "sent" && (
               <div className="terminal-friend-list">
                 {sentFriendRequests.content.length === 0 ? (
                   <p className="friend-list-status">보낸 친구 요청이 없습니다.</p>
@@ -2694,7 +3015,7 @@ export function ChatPage() {
                       className="friend-row-action danger"
                       type="button"
                       onClick={() => void handleDeleteFriendRequest(request, "sent")}
-                      disabled={friendOperationKey !== null}
+                      disabled={isFriendRequestOperationRunning(request.requestId)}
                     >
                       cancel
                     </button>
@@ -2705,9 +3026,9 @@ export function ChatPage() {
                     className="friend-load-more"
                     type="button"
                     onClick={() => void loadMoreFriendRequests("sent")}
-                    disabled={isLoadingMoreFriendRequests}
+                    disabled={isLoadingMoreSentFriendRequests}
                   >
-                    {isLoadingMoreFriendRequests ? "loading..." : "more --sent"}
+                    {isLoadingMoreSentFriendRequests ? "loading..." : "more --sent"}
                   </button>
                 )}
               </div>
@@ -3401,79 +3722,18 @@ export function ChatPage() {
           )}
         </div>
 
-        <footer className="composer-area">
-          {error && <p className="chat-error" role="alert">{error}</p>}
-          <form className="message-composer" onSubmit={handleSend}>
-            <input
-              ref={attachmentInputRef}
-              className="attachment-file-input"
-              type="file"
-              accept=".jpg,.jpeg,.png,.gif,.pdf,.txt,.zip,.docx,.xlsx,.pptx"
-              onChange={(event) => void handleAttachmentSelection(event)}
-              disabled={
-                !activeRoom
-                || !isConnected
-                || isActiveRoomDeleted
-                || isUploadingAttachment
-              }
-            />
-            <ChatAvatar
-              name={nickname}
-              imageUrl={ownProfileImageUrl}
-              className="terminal-composer-avatar"
-            />
-            <span className="terminal-composer-prompt" aria-hidden="true">$</span>
-            <label className="sr-only" htmlFor="message">메시지</label>
-            <input
-              className="terminal-message-input"
-              id="message"
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              placeholder={
-                activeRoom
-                  ? `${activeRoom.name ?? "Direct"}에 메시지 보내기`
-                  : "채팅방을 선택해주세요"
-              }
-              disabled={!activeRoom || !isConnected || isActiveRoomDeleted}
-            />
-            <button
-              className="attachment-upload-button"
-              type="button"
-              onClick={() => attachmentInputRef.current?.click()}
-              disabled={
-                !activeRoom
-                || !isConnected
-                || isActiveRoomDeleted
-                || isUploadingAttachment
-              }
-              aria-label="첨부파일 보내기"
-              title={isUploadingAttachment ? "업로드 중..." : "첨부파일 보내기"}
-            >
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="m8.5 12.5 6.9-6.9a3.2 3.2 0 0 1 4.5 4.5l-9.4 9.4a5 5 0 0 1-7.1-7.1l9-9"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-            <button
-              className="send-message-button"
-              type="submit"
-              disabled={
-                !activeRoom
-                || !isConnected
-                || isActiveRoomDeleted
-                || !message.trim()
-              }
-              aria-label="메시지 보내기"
-            >
-              <span aria-hidden="true">↵</span>
-            </button>
-          </form>
-        </footer>
+        <MessageComposer
+          key={`${activeRoomId ?? "none"}:${isActiveRoomDeleted}`}
+          activeRoom={activeRoom}
+          isConnected={isConnected}
+          isActiveRoomDeleted={isActiveRoomDeleted}
+          isUploadingAttachment={isUploadingAttachment}
+          nickname={nickname}
+          ownProfileImageUrl={ownProfileImageUrl}
+          error={error}
+          onSend={handleSend}
+          onAttachmentSelection={handleAttachmentSelection}
+        />
       </section>
 
       {openRoomIds.length > 0 && (
@@ -4060,52 +4320,73 @@ export function ChatPage() {
               </div>
             </div>
 
-            {friendError && (
-              <p className="public-profile-error" role="alert">{friendError}</p>
+            {friendProfileActionError && (
+              <p className="public-profile-error" role="alert">
+                {friendProfileActionError}
+              </p>
             )}
 
-            <footer className="profile-dialog-footer public-profile-actions">
-              <span>
-                $ relation --status {viewedMemberProfile.publicProfile
-                  ? getProfileRelationLabel(viewedMemberProfile.publicProfile.relationStatus).toLowerCase()
-                  : "loading"}
-              </span>
-              {viewedMemberProfile.publicProfile?.status === "ACTIVE"
-                && viewedMemberProfile.publicProfile.relationStatus === "NONE" && (
+            <div className="public-profile-relation-panel">
+              <div className="public-profile-relation-status">
+                <span>RELATION</span>
+                <strong>
+                  {viewedMemberProfile.publicProfile
+                    ? getProfileRelationLabel(viewedMemberProfile.publicProfile.relationStatus)
+                    : "LOADING"}
+                </strong>
+              </div>
+              <div className="public-profile-relation-actions">
+                {viewedMemberProfile.publicProfile?.status === "ACTIVE"
+                  && viewedMemberProfile.publicProfile.relationStatus === "NONE" && (
+                    <button
+                      className="profile-relation-button primary"
+                      type="button"
+                      onClick={() => void handleRequestFriend(viewedMemberProfile.memberId)}
+                      disabled={friendOperationKeys.includes(
+                        `request:${viewedMemberProfile.memberId}`,
+                      )}
+                    >
+                      <span aria-hidden="true">+</span>
+                      {friendOperationKeys.includes(`request:${viewedMemberProfile.memberId}`)
+                        ? "요청 중..."
+                        : "친구 요청"}
+                    </button>
+                  )}
+                {viewedMemberProfile.publicProfile?.relationStatus === "PENDING_SENT" && (
                   <button
+                    className="profile-relation-button neutral"
                     type="button"
-                    onClick={() => void handleRequestFriend(viewedMemberProfile.memberId)}
-                    disabled={friendOperationKey !== null}
+                    onClick={() => handleOpenFriendRequests("sent")}
                   >
-                    {friendOperationKey === `request:${viewedMemberProfile.memberId}`
-                      ? "요청 중..."
-                      : "친구 요청"}
+                    <span aria-hidden="true">→</span> 보낸 요청 확인
                   </button>
                 )}
-              {viewedMemberProfile.publicProfile?.relationStatus === "PENDING_SENT" && (
-                <button type="button" onClick={() => handleOpenFriendRequests("sent")}>
-                  보낸 요청 확인
-                </button>
-              )}
-              {viewedMemberProfile.publicProfile?.relationStatus === "PENDING_RECEIVED" && (
-                <button type="button" onClick={() => handleOpenFriendRequests("received")}>
-                  받은 요청 확인
-                </button>
-              )}
-              {viewedMemberProfile.publicProfile?.relationStatus === "ACCEPTED" && (
-                <button
-                  className="public-profile-unfollow"
-                  type="button"
-                  onClick={() => handleRequestUnfollow({
-                    memberId: viewedMemberProfile.memberId,
-                    displayName: viewedMemberProfile.displayName,
-                  })}
-                  disabled={friendOperationKey !== null}
-                >
-                  친구 끊기
-                </button>
-              )}
-            </footer>
+                {viewedMemberProfile.publicProfile?.relationStatus === "PENDING_RECEIVED" && (
+                  <button
+                    className="profile-relation-button primary"
+                    type="button"
+                    onClick={() => handleOpenFriendRequests("received")}
+                  >
+                    <span aria-hidden="true">←</span> 받은 요청 확인
+                  </button>
+                )}
+                {viewedMemberProfile.publicProfile?.relationStatus === "ACCEPTED" && (
+                  <button
+                    className="profile-relation-button danger"
+                    type="button"
+                    onClick={() => handleRequestUnfollow({
+                      memberId: viewedMemberProfile.memberId,
+                      displayName: viewedMemberProfile.displayName,
+                    })}
+                    disabled={friendOperationKeys.includes(
+                      `unfollow:${viewedMemberProfile.memberId}`,
+                    )}
+                  >
+                    <span aria-hidden="true">×</span> 친구 끊기
+                  </button>
+                )}
+              </div>
+            </div>
           </section>
         </div>
       )}
@@ -4125,15 +4406,17 @@ export function ChatPage() {
             <p className="profile-image-confirm-description">
               다시 연결하려면 새로운 친구 요청이 필요합니다.
             </p>
-            {friendError && (
-              <p className="profile-image-error" role="alert">{friendError}</p>
+            {friendRemovalError && (
+              <p className="profile-image-error" role="alert">{friendRemovalError}</p>
             )}
             <footer>
               <button
                 className="cancel-profile-image-button"
                 type="button"
                 onClick={() => setFriendRemovalTarget(null)}
-                disabled={friendOperationKey !== null}
+                disabled={friendOperationKeys.includes(
+                  `unfollow:${friendRemovalTarget.memberId}`,
+                )}
               >
                 취소
               </button>
@@ -4141,9 +4424,13 @@ export function ChatPage() {
                 className="confirm-profile-image-button is-delete"
                 type="button"
                 onClick={() => void handleConfirmUnfollow()}
-                disabled={friendOperationKey !== null}
+                disabled={friendOperationKeys.includes(
+                  `unfollow:${friendRemovalTarget.memberId}`,
+                )}
               >
-                {friendOperationKey?.startsWith("unfollow:") ? "처리 중..." : "친구 끊기"}
+                {friendOperationKeys.includes(`unfollow:${friendRemovalTarget.memberId}`)
+                  ? "처리 중..."
+                  : "친구 끊기"}
               </button>
             </footer>
           </section>
@@ -4190,6 +4477,68 @@ export function ChatPage() {
                 <p className="profile-identity-email">
                   {memberProfile?.email ?? "이메일 정보 없음"}
                 </p>
+                <div className="profile-status-message-editor">
+                  <div className="profile-status-message-heading">
+                    <span>STATUS_MESSAGE</span>
+                    {!isEditingStatusMessage && (
+                      <button
+                        type="button"
+                        onClick={handleStartStatusMessageEdit}
+                        disabled={isSavingStatusMessage}
+                      >
+                        edit
+                      </button>
+                    )}
+                  </div>
+                  {isEditingStatusMessage ? (
+                    <div className="profile-status-message-form">
+                      <input
+                        type="text"
+                        value={statusMessageDraft}
+                        maxLength={50}
+                        onChange={(event) => setStatusMessageDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void handleSaveStatusMessage();
+                          }
+                          if (event.key === "Escape") {
+                            handleCancelStatusMessageEdit();
+                          }
+                        }}
+                        disabled={isSavingStatusMessage}
+                        placeholder="상태 메시지를 입력하세요"
+                        aria-label="상태 메시지"
+                        autoFocus
+                      />
+                      <div>
+                        <span>{statusMessageDraft.length}/50</span>
+                        <button
+                          type="button"
+                          onClick={handleCancelStatusMessageEdit}
+                          disabled={isSavingStatusMessage}
+                        >
+                          취소
+                        </button>
+                        <button
+                          className="save"
+                          type="button"
+                          onClick={() => void handleSaveStatusMessage()}
+                          disabled={isSavingStatusMessage}
+                        >
+                          {isSavingStatusMessage ? "저장 중..." : "저장"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p>{memberProfile?.statusMessage?.trim() || "상태 메시지 없음"}</p>
+                  )}
+                  {statusMessageError && (
+                    <p className="profile-status-message-error" role="alert">
+                      {statusMessageError}
+                    </p>
+                  )}
+                </div>
                 <p className="profile-identity-verification">
                   <span>EMAIL_STATUS</span>
                   <strong>{emailVerified ? "VERIFIED" : "UNVERIFIED"}</strong>
@@ -4203,16 +4552,14 @@ export function ChatPage() {
                   >
                     {isUpdatingProfileImage ? "처리 중..." : "사진 변경"}
                   </button>
-                  {(memberProfile?.hasStoredProfileImage || memberProfile?.profileImageUrl) && (
-                    <button
-                      className="profile-image-delete-button"
-                      type="button"
-                      onClick={handleRequestDeleteProfileImage}
-                      disabled={isUpdatingProfileImage}
-                    >
-                      사진 삭제
-                    </button>
-                  )}
+                  <button
+                    className="profile-image-delete-button"
+                    type="button"
+                    onClick={handleRequestDeleteProfileImage}
+                    disabled={isUpdatingProfileImage}
+                  >
+                    사진 삭제
+                  </button>
                 </div>
               </div>
             </div>

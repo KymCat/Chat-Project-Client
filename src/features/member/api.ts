@@ -4,8 +4,9 @@ import { API_BASE_URL } from "../../shared/config/env";
 export interface MemberProfileResponse {
   nickname: string;
   email: string;
-  profileImageUrl: string | null;
-  hasStoredProfileImage: boolean;
+  statusMessage: string | null;
+  status: MemberStatus;
+  usesStoredProfileImage: boolean;
 }
 
 export type ProfileRelationStatus =
@@ -45,4 +46,6 @@ export const memberApi = {
     httpClient.put<void>("/member/me/profile-image/social", { provider }),
   deleteProfileImage: () =>
     httpClient.delete<void>("/member/me/profile-image"),
+  updateStatusMessage: (newStatusMessage: string | null) =>
+    httpClient.patch<void>("/member/me/status-message", { newStatusMessage }),
 };

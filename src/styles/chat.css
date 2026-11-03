@@ -7482,9 +7482,23 @@
 }
 
 .friend-request-signal {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
   margin-left: 8px;
-  color: #ff8ca6;
-  font-size: 8px;
+  flex: 0 0 11px;
+  border: 1px solid #ffb0c2;
+  border-radius: 50%;
+  background: #ff668a;
+  box-shadow:
+    0 0 0 2px #101517,
+    0 0 8px rgba(255, 102, 138, 0.42);
+}
+
+.chat-gallery-tabs .friend-request-signal.top-level {
+  position: relative;
+  z-index: 2;
+  margin-left: 2px;
 }
 
 .friend-notice,
@@ -7496,7 +7510,18 @@
 }
 
 .friend-notice {
+  position: fixed;
+  z-index: 40;
+  right: 20px;
+  bottom: 20px;
+  max-width: min(420px, calc(100vw - 28px));
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid #477356;
+  border-radius: 4px;
   color: #76d993;
+  background: rgba(14, 20, 17, 0.97);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
 }
 
 .friend-notice::before {
@@ -7656,18 +7681,194 @@
   color: #b7c8bc;
 }
 
-.profile-dialog-footer.public-profile-actions {
-  flex-wrap: wrap;
+.public-profile-relation-panel {
+  display: flex;
+  min-height: 54px;
+  margin-top: 16px;
+  padding: 9px 10px 9px 13px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid #2d3932;
+  border-radius: 4px;
+  background: #0e1411;
 }
 
-.public-profile-actions > span {
-  margin-right: auto;
+.public-profile-relation-status {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
 }
 
-.public-profile-actions .public-profile-unfollow {
+.public-profile-relation-status > span {
+  color: #5f6c64;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.public-profile-relation-status > strong {
+  overflow: hidden;
+  color: #9caf9f;
+  font-size: var(--ui-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.public-profile-relation-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.profile-relation-button {
+  display: inline-flex;
+  width: auto;
+  min-width: 112px;
+  min-height: 34px;
+  padding: 0 11px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #3b4b41;
+  border-radius: 3px;
+  color: #b6c5ba;
+  background: #151b17;
+  font: 700 var(--ui-text-xs)/1 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.profile-relation-button > span {
+  color: #76d993;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.profile-relation-button.primary {
+  border-color: #477356;
+  color: #c8f5d3;
+  background: #142019;
+}
+
+.profile-relation-button.neutral {
+  border-color: #3d4942;
+  color: #aebdb3;
+}
+
+.profile-relation-button.danger {
   border-color: #62404a;
   color: #f0a0b3;
   background: #21161a;
+}
+
+.profile-relation-button.danger > span {
+  color: #ff8ca6;
+}
+
+.profile-relation-button:hover:not(:disabled) {
+  border-color: #76d993;
+  color: #e6ffec;
+  filter: brightness(1.12);
+}
+
+.profile-relation-button:focus-visible {
+  outline: 1px solid #76d993;
+  outline-offset: 3px;
+}
+
+.profile-relation-button:disabled {
+  cursor: wait;
+  opacity: 0.52;
+}
+
+.profile-status-message-editor {
+  display: grid;
+  margin-top: 3px;
+  gap: 6px;
+}
+
+.profile-status-message-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.profile-status-message-heading > span {
+  color: #657169;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.profile-status-message-heading > button {
+  padding: 0;
+  border: 0;
+  color: #76d993;
+  background: transparent;
+  font: 700 10px/1 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.profile-status-message-editor > p {
+  margin: 0;
+  overflow: hidden;
+  color: #b7c8bc;
+  font-size: var(--ui-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-status-message-form {
+  display: grid;
+  gap: 7px;
+}
+
+.profile-status-message-form > input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #3b4b41;
+  border-radius: 3px;
+  outline: 0;
+  color: #dce8df;
+  background: #0d1310;
+  font: 500 var(--ui-text-xs)/1.4 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.profile-status-message-form > input:focus {
+  border-color: #5da874;
+  box-shadow: 0 0 0 3px rgba(93, 168, 116, 0.1);
+}
+
+.profile-status-message-form > div {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.profile-status-message-form > div > span {
+  margin-right: auto;
+  color: #59655e;
+  font-size: 9px;
+}
+
+.profile-status-message-form button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #333e37;
+  border-radius: 3px;
+  color: #8f9e94;
+  background: #111715;
+  font: 700 10px/1 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.profile-status-message-form button.save {
+  border-color: #477356;
+  color: #c8f5d3;
+  background: #142019;
+}
+
+.profile-status-message-error {
+  color: #ff8ca6 !important;
+  white-space: normal !important;
 }
 
 .friend-removal-dialog {
@@ -7694,12 +7895,26 @@
     flex: 1 1 50%;
   }
 
-  .profile-dialog-footer.public-profile-actions {
+  .public-profile-relation-panel {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .public-profile-actions > span {
-    margin-right: 0;
+  .public-profile-relation-actions,
+  .profile-relation-button {
+    width: 100%;
   }
+
+  .friend-notice {
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+    max-width: none;
+  }
+}
+
+/* Skip layout and paint work for off-screen messages in long conversations. */
+.message-list > .message {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
 }

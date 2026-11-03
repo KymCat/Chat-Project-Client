@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 interface ChatAvatarProps {
   name: string;
@@ -10,7 +10,11 @@ function getInitial(name: string) {
   return Array.from(name.trim())[0]?.toLocaleUpperCase() ?? "?";
 }
 
-export function ChatAvatar({ name, imageUrl, className = "" }: ChatAvatarProps) {
+export const ChatAvatar = memo(function ChatAvatar({
+  name,
+  imageUrl,
+  className = "",
+}: ChatAvatarProps) {
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
@@ -27,4 +31,4 @@ export function ChatAvatar({ name, imageUrl, className = "" }: ChatAvatarProps) 
         : getInitial(name)}
     </span>
   );
-}
+});
