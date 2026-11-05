@@ -21,12 +21,14 @@ import { ChatAvatar } from "../features/chat/ChatAvatar";
 import { MessageComposer } from "../features/chat/MessageComposer";
 import {
   chatRoomApi,
+  type ChatErrorEvent,
   type ChatMessage,
   type ChatMessageEvent,
   type ChatRoomEvent,
   type ChatRoomInviteLinkResponse,
   type ChatRoomMemberResponse,
   type ChatRoomResponse,
+  type DirectChatResponse,
   type GroupChatRoomResponse,
   type InviteLinkExpiration,
 } from "../features/chat/api";
@@ -41,6 +43,7 @@ import {
   memberApi,
   type MemberProfileResponse,
   type MemberPublicProfileResponse,
+  type MemberStatus,
 } from "../features/member/api";
 import { readAccessToken } from "../shared/auth/token";
 import { ApiError } from "../shared/api/httpClient";
@@ -91,6 +94,12 @@ interface ViewedMemberProfile {
 interface FriendRemovalTarget {
   memberId: number;
   displayName: string;
+}
+
+interface DirectChatTarget {
+  memberId: number;
+  displayName: string;
+  status: MemberStatus;
 }
 
 const emptyFriendRequestPage: CursorPageResponse<FriendRequestResponse> = {
@@ -295,6 +304,13 @@ export function ChatPage() {
   const [friendOperationKeys, setFriendOperationKeys] = useState<string[]>([]);
   const [friendRemovalTarget, setFriendRemovalTarget] =
     useState<FriendRemovalTarget | null>(null);
+  const [directChatTarget, setDirectChatTarget] =
+    useState<DirectChatTarget | null>(null);
+  const [directMessageDraft, setDirectMessageDraft] = useState("");
+  const [directChatError, setDirectChatError] = useState("");
+  const [openingDirectMemberId, setOpeningDirectMemberId] =
+    useState<number | null>(null);
+  const [isSendingDirectMessage, setIsSendingDirectMessage] = useState(false);
   const [roomAvatarPage, setRoomAvatarPage] = useState(0);
   const [isLoadingRooms, setIsLoadingRooms] = useState(true);
   const [roomListError, setRoomListError] = useState("");
@@ -309,6 +325,8 @@ export function ChatPage() {
   const [leaveRoomError, setLeaveRoomError] = useState("");
   const [messagesByRoom, setMessagesByRoom] = useState<Record<number, ChatMessage[]>>({});
   const [messagePagesByRoom, setMessagePagesByRoom] = useState<Record<number, MessagePageState>>({});
+  const [chatSendErrorsByRoom, setChatSendErrorsByRoom] =
+    useState<Record<number, string>>({});
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [pendingAttachment, setPendingAttachment] =
     useState<PendingAttachment | null>(null);
@@ -419,6 +437,11 @@ export function ChatPage() {
   const emailVerified = claims?.email_verified === true;
   const activeRoom = rooms.find((room) => room.roomId === activeRoomId) ?? null;
   const isActiveRoomDeleted = deletedRoomNotice?.roomId === activeRoomId;
+  const activeRoomSendError = activeRoomId === null
+    ? ""
+    : chatSendErrorsByRoom[activeRoomId] ?? "";
+  const isActiveRoomGroupOwner = activeRoom?.type === "GROUP"
+    && activeRoom.role === "OWNER";
   const messages = useMemo(
     () => activeRoomId === null ? [] : messagesByRoom[activeRoomId] ?? [],
     [activeRoomId, messagesByRoom],
@@ -570,13 +593,24 @@ export function ChatPage() {
       delete next[roomId];
       return next;
     });
+    setChatSendErrorsByRoom((current) => {
+      if (!(roomId in current)) return current;
+      const next = { ...current };
+      delete next[roomId];
+      return next;
+    });
     latestMessageIdByRoomRef.current.delete(roomId);
     lastReadRequestByRoomRef.current.delete(roomId);
   }, []);
 
-  const loadRooms = useCallback(async (preferredRoomId?: number) => {
-    setIsLoadingRooms(true);
-    setRoomListError("");
+  const loadRooms = useCallback(async (
+    preferredRoomId?: number,
+    silent = false,
+  ) => {
+    if (!silent) {
+      setIsLoadingRooms(true);
+      setRoomListError("");
+    }
 
     try {
       const response = await chatRoomApi.getAll();
@@ -592,14 +626,16 @@ export function ChatPage() {
       });
       return response;
     } catch (loadError) {
-      setRoomListError(
-        loadError instanceof Error
-          ? loadError.message
-          : "채팅방 목록을 불러오지 못했습니다.",
-      );
+      if (!silent) {
+        setRoomListError(
+          loadError instanceof Error
+            ? loadError.message
+            : "채팅방 목록을 불러오지 못했습니다.",
+        );
+      }
       return null;
     } finally {
-      setIsLoadingRooms(false);
+      if (!silent) setIsLoadingRooms(false);
     }
   }, []);
 
@@ -867,6 +903,35 @@ export function ChatPage() {
     }
   }, [loadAvailableRooms, loadRooms]);
 
+  const handleIncomingDirectMessage = useCallback((response: DirectChatResponse) => {
+    const receivedMessage = response.message;
+    setMessagesByRoom((current) => ({
+      ...current,
+      [response.roomId]: mergeMessages(
+        current[response.roomId] ?? [],
+        [receivedMessage],
+      ),
+    }));
+    latestMessageIdByRoomRef.current.set(
+      response.roomId,
+      receivedMessage.messageId,
+    );
+    setChatSendErrorsByRoom((current) => {
+      if (!(response.roomId in current)) return current;
+      const next = { ...current };
+      delete next[response.roomId];
+      return next;
+    });
+
+    const isViewingRoom = isViewingRoomAtBottom(response.roomId);
+    shouldScrollToBottomRef.current = isViewingRoom;
+    void loadRooms(undefined, true);
+
+    if (isViewingRoom) {
+      void markRoomAsRead(response.roomId, receivedMessage.messageId);
+    }
+  }, [isViewingRoomAtBottom, loadRooms, markRoomAsRead]);
+
   useEffect(() => {
     if (!accessToken) {
       setMemberProfile(null);
@@ -880,6 +945,11 @@ export function ChatPage() {
       setFriendRemovalError("");
       setFriendNotice("");
       setFriendOperationKeys([]);
+      setDirectChatTarget(null);
+      setDirectMessageDraft("");
+      setDirectChatError("");
+      setOpeningDirectMemberId(null);
+      setIsSendingDirectMessage(false);
       setRooms([]);
       setActiveRoomId(null);
       setOpenRoomIds([]);
@@ -889,6 +959,7 @@ export function ChatPage() {
       setIsLoadingAvailableRooms(false);
       setMessagesByRoom({});
       setMessagePagesByRoom({});
+      setChatSendErrorsByRoom({});
       loadingMessageRoomIdsRef.current.clear();
       return;
     }
@@ -1024,6 +1095,13 @@ export function ChatPage() {
 
         if (!isCreated) return;
 
+        setChatSendErrorsByRoom((current) => {
+          if (!(receivedMessage.roomId in current)) return current;
+          const next = { ...current };
+          delete next[receivedMessage.roomId];
+          return next;
+        });
+
         latestMessageIdByRoomRef.current.set(
           receivedMessage.roomId,
           receivedMessage.messageId,
@@ -1046,6 +1124,21 @@ export function ChatPage() {
 
         if (isViewingRoom) {
           void markRoomAsRead(receivedMessage.roomId, receivedMessage.messageId);
+        }
+      },
+      onDirectMessage: handleIncomingDirectMessage,
+      onChatError: (chatError: ChatErrorEvent) => {
+        if (chatError.code !== "FRIENDSHIP-007") {
+          setError(chatError.message);
+          return;
+        }
+
+        setChatSendErrorsByRoom((current) => ({
+          ...current,
+          [chatError.roomId]: `${chatError.message} 메시지를 보내려면 먼저 친구 관계를 다시 맺어주세요.`,
+        }));
+        if (activeRoomIdRef.current === chatError.roomId) {
+          setError("");
         }
       },
       onRoomEvent: (event: ChatRoomEvent) => {
@@ -1089,6 +1182,7 @@ export function ChatPage() {
     };
   }, [
     accessToken,
+    handleIncomingDirectMessage,
     isViewingRoomAtBottom,
     markRoomAsRead,
     memberId,
@@ -1227,7 +1321,7 @@ export function ChatPage() {
 
   const handleSend = (content: string) => {
     try {
-      if (activeRoomId === null) return false;
+      if (activeRoomId === null || chatSendErrorsByRoom[activeRoomId]) return false;
 
       chatRef.current?.send(activeRoomId, content);
       setError("");
@@ -1245,7 +1339,12 @@ export function ChatPage() {
     const file = input.files?.[0];
     const roomId = activeRoomId;
     input.value = "";
-    if (!file || roomId === null || isUploadingAttachment) return;
+    if (
+      !file
+      || roomId === null
+      || isUploadingAttachment
+      || chatSendErrorsByRoom[roomId]
+    ) return;
 
     setPendingAttachment({
       roomId,
@@ -1264,6 +1363,10 @@ export function ChatPage() {
 
   const handleConfirmAttachment = async () => {
     if (!pendingAttachment || isUploadingAttachment) return;
+    if (chatSendErrorsByRoom[pendingAttachment.roomId]) {
+      setError(chatSendErrorsByRoom[pendingAttachment.roomId]);
+      return;
+    }
 
     setIsUploadingAttachment(true);
     setError("");
@@ -1472,7 +1575,7 @@ export function ChatPage() {
   };
 
   const handleOpenLeaveRoomModal = () => {
-    if (!activeRoom || activeRoom.role === "OWNER") return;
+    if (!activeRoom || isActiveRoomGroupOwner) return;
 
     setIsRoomMenuOpen(false);
     setLeaveRoomError("");
@@ -1604,19 +1707,17 @@ export function ChatPage() {
     try {
       await chatRoomApi.leave(roomId);
 
-      const remainingRooms = rooms.filter((room) => room.roomId !== roomId);
-      setRooms(remainingRooms);
-      setActiveRoomId(remainingRooms[0]?.roomId ?? null);
-      setMessagesByRoom((current) => {
-        const next = { ...current };
-        delete next[roomId];
-        return next;
-      });
-      setMessagePagesByRoom((current) => {
-        const next = { ...current };
-        delete next[roomId];
-        return next;
-      });
+      removeRoomState(roomId);
+      if (activeRoomIdRef.current === roomId) {
+        activeRoomIdRef.current = null;
+        isChatOpenRef.current = false;
+        setActiveRoomId(null);
+        setIsChatOpen(false);
+        setIsMemberListOpen(false);
+        setIsRoomMenuOpen(false);
+        setRoomMembers([]);
+        setMemberListError("");
+      }
       setError("");
       setLeaveTargetRoom(null);
       await loadAvailableRooms();
@@ -1658,6 +1759,7 @@ export function ChatPage() {
   ) => {
     setIsMemberListOpen(false);
     setFriendProfileActionError("");
+    setDirectChatError("");
 
     if (targetMemberId === memberId) {
       handleOpenOwnProfile();
@@ -1779,7 +1881,7 @@ export function ChatPage() {
       if (viewedMemberProfile?.memberId === request.targetMemberId) {
         void refreshViewedMemberProfile(request.targetMemberId);
       }
-      setFriendNotice(`${request.targetNickname}님과 친구가 되었습니다.`);
+      setFriendNotice(`${request.targetDisplayName}님과 친구가 되었습니다.`);
     } catch (requestError) {
       setReceivedFriendRequestError(
         requestError instanceof Error
@@ -2048,16 +2150,17 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (activeRoomId === null) {
+    if (activeRoomId === null || activeRoom?.type !== "GROUP") {
       memberRequestIdRef.current += 1;
       setRoomMembers([]);
       setIsLoadingMembers(false);
       setMemberListError("");
+      setIsMemberListOpen(false);
       return;
     }
 
     void loadRoomMembers(activeRoomId);
-  }, [activeRoomId, loadRoomMembers]);
+  }, [activeRoom?.type, activeRoomId, loadRoomMembers]);
 
   const handleToggleMemberList = () => {
     if (isMemberListOpen) {
@@ -2431,6 +2534,7 @@ export function ChatPage() {
 
     setViewedMemberProfile(null);
     setFriendNotice("");
+    setDirectChatError("");
     setActiveGalleryTab(tab);
 
     if (tab === "friends" && activeGalleryTab === "friends") {
@@ -2471,8 +2575,12 @@ export function ChatPage() {
     }
   };
 
-  const handleOpenRoom = (roomId: number) => {
-    if (activeRoomIdRef.current === roomId && isChatOpenRef.current) {
+  const handleOpenRoom = (roomId: number, toggleIfActive = true) => {
+    if (
+      toggleIfActive
+      && activeRoomIdRef.current === roomId
+      && isChatOpenRef.current
+    ) {
       handleMinimizeRoom();
       return;
     }
@@ -2488,6 +2596,104 @@ export function ChatPage() {
       : [...current, roomId].slice(-3));
     setActiveRoomId(roomId);
     setIsChatOpen(true);
+  };
+
+  const handleCloseDirectChatModal = () => {
+    if (isSendingDirectMessage) return;
+    setDirectChatTarget(null);
+    setDirectMessageDraft("");
+    setDirectChatError("");
+  };
+
+  const handleRequestDirectChat = async (target: DirectChatTarget) => {
+    if (openingDirectMemberId !== null) return;
+
+    setOpeningDirectMemberId(target.memberId);
+    setDirectChatError("");
+
+    try {
+      const response = await chatRoomApi.findDirect(target.memberId);
+      if (response.roomId !== null) {
+        const loadedRooms = await loadRooms(response.roomId, true);
+        if (!loadedRooms?.some((room) => room.roomId === response.roomId)) {
+          throw new Error("1:1 채팅방을 불러오지 못했습니다.");
+        }
+
+        setViewedMemberProfile(null);
+        setActiveGalleryTab("joined");
+        handleOpenRoom(response.roomId, false);
+        return;
+      }
+
+      if (target.status !== "ACTIVE") {
+        setDirectChatError("비활성화된 회원과는 새 1:1 채팅을 시작할 수 없습니다.");
+        return;
+      }
+
+      setDirectChatTarget(target);
+      setDirectMessageDraft("");
+    } catch (requestError) {
+      setDirectChatError(
+        requestError instanceof Error
+          ? requestError.message
+          : "1:1 채팅방을 확인하지 못했습니다.",
+      );
+    } finally {
+      setOpeningDirectMemberId(null);
+    }
+  };
+
+  const handleSendFirstDirectMessage = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!directChatTarget || isSendingDirectMessage) return;
+
+    const content = directMessageDraft.trim();
+    if (!content) return;
+
+    setIsSendingDirectMessage(true);
+    setDirectChatError("");
+
+    try {
+      const response = await chatRoomApi.sendDirectMessage({
+        targetMemberId: directChatTarget.memberId,
+        content,
+      });
+      setMessagesByRoom((current) => ({
+        ...current,
+        [response.roomId]: mergeMessages(
+          current[response.roomId] ?? [],
+          [response.message],
+        ),
+      }));
+      latestMessageIdByRoomRef.current.set(
+        response.roomId,
+        response.message.messageId,
+      );
+
+      const loadedRooms = await loadRooms(response.roomId, true);
+      if (!loadedRooms?.some((room) => room.roomId === response.roomId)) {
+        setDirectChatTarget(null);
+        setDirectMessageDraft("");
+        setDirectChatError(
+          "첫 메시지는 전송되었지만 채팅방 목록을 갱신하지 못했습니다. 잠시 후 다시 확인해주세요.",
+        );
+        return;
+      }
+
+      setDirectChatTarget(null);
+      setDirectMessageDraft("");
+      setViewedMemberProfile(null);
+      setActiveGalleryTab("joined");
+      handleOpenRoom(response.roomId, false);
+    } catch (requestError) {
+      setDirectChatError(
+        requestError instanceof Error
+          ? requestError.message
+          : "첫 메시지를 보내지 못했습니다.",
+      );
+    } finally {
+      setIsSendingDirectMessage(false);
+    }
   };
 
   const handleCloseRoom = () => {
@@ -2676,7 +2882,7 @@ export function ChatPage() {
                 <div className="terminal-room-session-header" aria-hidden="true">
                   <span className="terminal-session-cursor" />
                   <span className="terminal-session-id">ID</span>
-                  <span className="terminal-session-state">STATE</span>
+                  <span className="terminal-session-type">TYPE</span>
                   <span className="terminal-session-name">ROOM</span>
                   <span className="terminal-session-unread">UNREAD</span>
                 </div>
@@ -2694,7 +2900,7 @@ export function ChatPage() {
                         key={room.roomId}
                         type="button"
                         onClick={() => handleOpenRoom(room.roomId)}
-                        aria-label={`${roomName} 채팅방 열기`}
+                        aria-label={`${room.type === "DIRECT" ? "1대1" : "그룹"} 채팅방 ${roomName} 열기`}
                         aria-current={isActive ? "true" : undefined}
                         initial={prefersReducedMotion ? false : { opacity: 0, y: 3 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -2709,8 +2915,13 @@ export function ChatPage() {
                         <span className="terminal-session-id">
                           [{String(sessionNumber).padStart(2, "0")}]
                         </span>
-                        <span className="terminal-session-state">
-                          {isActive ? "active" : "idle"}
+                        <span
+                          className={[
+                            "terminal-session-type",
+                            room.type === "DIRECT" ? "direct" : "group",
+                          ].join(" ")}
+                        >
+                          [{room.type}]
                         </span>
                         <strong className="terminal-session-name">{roomName}</strong>
                         <span
@@ -2869,6 +3080,11 @@ export function ChatPage() {
             {friendNotice && (
               <p className="friend-notice" role="status">{friendNotice}</p>
             )}
+            {directChatError && !directChatTarget && (
+              <div className="friend-error" role="alert">
+                <p>{directChatError}</p>
+              </div>
+            )}
             {activeFriendPanelError && (
               <div className="friend-error" role="alert">
                 <p>{activeFriendPanelError}</p>
@@ -2896,31 +3112,47 @@ export function ChatPage() {
                     <button
                       className="friend-identity-button"
                       type="button"
-                      onClick={() => handleOpenMemberProfile(friend.memberId, friend.nickname)}
+                      onClick={() => handleOpenMemberProfile(friend.memberId, friend.displayName)}
                     >
                       <ChatAvatar
-                        name={friend.nickname}
+                        name={friend.displayName}
                         imageUrl={memberApi.getProfileImageUrl(friend.memberId)}
                         className="friend-list-avatar"
                       />
                       <span>
-                        <strong>{friend.nickname}</strong>
+                        <strong>{friend.displayName}</strong>
                         <small>
                           {friend.statusMessage?.trim() || "상태 메시지 없음"}
                         </small>
                       </span>
                     </button>
-                    <button
-                      className="friend-row-action danger"
-                      type="button"
-                      onClick={() => handleRequestUnfollow({
-                        memberId: friend.memberId,
-                        displayName: friend.nickname,
-                      })}
-                      disabled={friendOperationKeys.includes(`unfollow:${friend.memberId}`)}
-                    >
-                      disconnect
-                    </button>
+                    <div className="friend-request-actions">
+                      <button
+                        className="friend-row-action"
+                        type="button"
+                        onClick={() => void handleRequestDirectChat({
+                          memberId: friend.memberId,
+                          displayName: friend.displayName,
+                          status: friend.status,
+                        })}
+                        disabled={openingDirectMemberId !== null}
+                      >
+                        {openingDirectMemberId === friend.memberId
+                          ? "opening..."
+                          : "message"}
+                      </button>
+                      <button
+                        className="friend-row-action danger"
+                        type="button"
+                        onClick={() => handleRequestUnfollow({
+                          memberId: friend.memberId,
+                          displayName: friend.displayName,
+                        })}
+                        disabled={friendOperationKeys.includes(`unfollow:${friend.memberId}`)}
+                      >
+                        disconnect
+                      </button>
+                    </div>
                   </article>
                 ))}
               </motion.div>
@@ -2937,16 +3169,16 @@ export function ChatPage() {
                       type="button"
                       onClick={() => handleOpenMemberProfile(
                         request.targetMemberId,
-                        request.targetNickname,
+                        request.targetDisplayName,
                       )}
                     >
                       <ChatAvatar
-                        name={request.targetNickname}
+                        name={request.targetDisplayName}
                         imageUrl={memberApi.getProfileImageUrl(request.targetMemberId)}
                         className="friend-list-avatar"
                       />
                       <span>
-                        <strong>{request.targetNickname}</strong>
+                        <strong>{request.targetDisplayName}</strong>
                         <small>
                           received {friendRequestDateFormatter.format(new Date(request.createdAt))}
                         </small>
@@ -2996,16 +3228,16 @@ export function ChatPage() {
                       type="button"
                       onClick={() => handleOpenMemberProfile(
                         request.targetMemberId,
-                        request.targetNickname,
+                        request.targetDisplayName,
                       )}
                     >
                       <ChatAvatar
-                        name={request.targetNickname}
+                        name={request.targetDisplayName}
                         imageUrl={memberApi.getProfileImageUrl(request.targetMemberId)}
                         className="friend-list-avatar"
                       />
                       <span>
-                        <strong>{request.targetNickname}</strong>
+                        <strong>{request.targetDisplayName}</strong>
                         <small>
                           sent {friendRequestDateFormatter.format(new Date(request.createdAt))}
                         </small>
@@ -3040,7 +3272,6 @@ export function ChatPage() {
 
       <section
         className="chat-workspace"
-        aria-hidden={!isChatOpen}
         inert={!isChatOpen}
       >
         <header className="chat-header">
@@ -3059,7 +3290,8 @@ export function ChatPage() {
               <span className="terminal-chat-command-option">--room</span>
             </span>
             <h1>"{activeRoom?.name ?? "채팅방 없음"}"</h1>
-            <div className="members-popover-anchor">
+            {activeRoom?.type === "GROUP" && (
+              <div className="members-popover-anchor">
                 <button
                   className="member-summary-button"
                   type="button"
@@ -3157,7 +3389,8 @@ export function ChatPage() {
                     )}
                   </section>
                 )}
-            </div>
+              </div>
+            )}
           </div>
           <div className="chat-header-actions">
             <button
@@ -3185,7 +3418,8 @@ export function ChatPage() {
                 />
               </svg>
             </button>
-            <div className="room-menu-anchor">
+            {activeRoom && (
+              <div className="room-menu-anchor">
               <button
                 className="room-menu-button"
                 type="button"
@@ -3208,63 +3442,67 @@ export function ChatPage() {
               {isRoomMenuOpen && activeRoom && (
                 <div className="room-menu-dropdown" id="chat-room-menu">
                   <p className="terminal-menu-command">$ room --menu</p>
-                  <button
-                    className="invite-link-menu-button"
-                    type="button"
-                    onClick={() => void handleOpenInviteLinkModal()}
-                  >
-                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
-                      <path
-                        d="M8.2 11.8 11.8 8.2M6.4 13.6l-1.1 1.1a2.55 2.55 0 0 1-3.6-3.6l2.2-2.2a2.55 2.55 0 0 1 3.6 0M13.6 6.4l1.1-1.1a2.55 2.55 0 0 1 3.6 3.6l-2.2 2.2a2.55 2.55 0 0 1-3.6 0"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    초대 링크
-                  </button>
-                  {activeRoom.role === "OWNER" && (
+                  {activeRoom.type === "GROUP" && (
                     <>
                       <button
-                        className="room-name-update-button"
+                        className="invite-link-menu-button"
                         type="button"
-                        onClick={handleOpenRoomNameUpdateModal}
+                        onClick={() => void handleOpenInviteLinkModal()}
                       >
                         <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
                           <path
-                            d="m4 13.5-.5 3 3-.5L15 7.5 12.5 5 4 13.5ZM11.5 6l2.5 2.5"
+                            d="M8.2 11.8 11.8 8.2M6.4 13.6l-1.1 1.1a2.55 2.55 0 0 1-3.6-3.6l2.2-2.2a2.55 2.55 0 0 1 3.6 0M13.6 6.4l1.1-1.1a2.55 2.55 0 0 1 3.6 3.6l-2.2 2.2a2.55 2.55 0 0 1-3.6 0"
                             stroke="currentColor"
-                            strokeWidth="1.6"
+                            strokeWidth="1.5"
                             strokeLinecap="round"
-                            strokeLinejoin="round"
                           />
                         </svg>
-                        채팅방 이름 변경
+                        초대 링크
                       </button>
-                      <button
-                        className="delete-room-button"
-                        type="button"
-                        onClick={handleOpenDeleteRoomModal}
-                      >
-                        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
-                          <path
-                            d="M4.5 6h11M8 3.5h4M6.5 6l.6 10h5.8l.6-10M8.5 8.5v5M11.5 8.5v5"
-                            stroke="currentColor"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        채팅방 삭제
-                      </button>
+                      {activeRoom.role === "OWNER" && (
+                        <>
+                          <button
+                            className="room-name-update-button"
+                            type="button"
+                            onClick={handleOpenRoomNameUpdateModal}
+                          >
+                            <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                              <path
+                                d="m4 13.5-.5 3 3-.5L15 7.5 12.5 5 4 13.5ZM11.5 6l2.5 2.5"
+                                stroke="currentColor"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                            채팅방 이름 변경
+                          </button>
+                          <button
+                            className="delete-room-button"
+                            type="button"
+                            onClick={handleOpenDeleteRoomModal}
+                          >
+                            <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                              <path
+                                d="M4.5 6h11M8 3.5h4M6.5 6l.6 10h5.8l.6-10M8.5 8.5v5M11.5 8.5v5"
+                                stroke="currentColor"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                            채팅방 삭제
+                          </button>
+                        </>
+                      )}
                     </>
                   )}
                   <button
                     className="leave-chat-button"
                     type="button"
                     onClick={handleOpenLeaveRoomModal}
-                    disabled={activeRoom.role === "OWNER"}
-                    title={activeRoom.role === "OWNER"
+                    disabled={isActiveRoomGroupOwner}
+                    title={isActiveRoomGroupOwner
                       ? "방장은 소유권을 위임한 후 나갈 수 있습니다."
                       : "채팅방 나가기"}
                   >
@@ -3281,7 +3519,8 @@ export function ChatPage() {
                   </button>
                 </div>
               )}
-            </div>
+              </div>
+            )}
             <button
               className="minimize-chat-button"
               type="button"
@@ -3728,6 +3967,7 @@ export function ChatPage() {
           isConnected={isConnected}
           isActiveRoomDeleted={isActiveRoomDeleted}
           isUploadingAttachment={isUploadingAttachment}
+          sendBlockedReason={activeRoomSendError}
           nickname={nickname}
           ownProfileImageUrl={ownProfileImageUrl}
           error={error}
@@ -4325,6 +4565,11 @@ export function ChatPage() {
                 {friendProfileActionError}
               </p>
             )}
+            {directChatError && !directChatTarget && (
+              <p className="public-profile-error" role="alert">
+                {directChatError}
+              </p>
+            )}
 
             <div className="public-profile-relation-panel">
               <div className="public-profile-relation-status">
@@ -4371,22 +4616,106 @@ export function ChatPage() {
                   </button>
                 )}
                 {viewedMemberProfile.publicProfile?.relationStatus === "ACCEPTED" && (
-                  <button
-                    className="profile-relation-button danger"
-                    type="button"
-                    onClick={() => handleRequestUnfollow({
-                      memberId: viewedMemberProfile.memberId,
-                      displayName: viewedMemberProfile.displayName,
-                    })}
-                    disabled={friendOperationKeys.includes(
-                      `unfollow:${viewedMemberProfile.memberId}`,
-                    )}
-                  >
-                    <span aria-hidden="true">×</span> 친구 끊기
-                  </button>
+                  <>
+                    <button
+                      className="profile-relation-button primary"
+                      type="button"
+                      onClick={() => void handleRequestDirectChat({
+                        memberId: viewedMemberProfile.memberId,
+                        displayName: viewedMemberProfile.displayName,
+                        status: viewedMemberProfile.publicProfile?.status ?? "ACTIVE",
+                      })}
+                      disabled={openingDirectMemberId !== null}
+                    >
+                      <span aria-hidden="true">&gt;</span>
+                      {openingDirectMemberId === viewedMemberProfile.memberId
+                        ? "연결 중..."
+                        : "1:1 채팅"}
+                    </button>
+                    <button
+                      className="profile-relation-button danger"
+                      type="button"
+                      onClick={() => handleRequestUnfollow({
+                        memberId: viewedMemberProfile.memberId,
+                        displayName: viewedMemberProfile.displayName,
+                      })}
+                      disabled={friendOperationKeys.includes(
+                        `unfollow:${viewedMemberProfile.memberId}`,
+                      )}
+                    >
+                      <span aria-hidden="true">×</span> 친구 끊기
+                    </button>
+                  </>
                 )}
               </div>
             </div>
+          </section>
+        </div>
+      )}
+
+      {directChatTarget && (
+        <div className="profile-image-confirm-modal" role="presentation">
+          <section
+            className="profile-image-confirm-dialog direct-chat-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="direct-chat-dialog-title"
+          >
+            <p className="eyebrow">$ direct --start</p>
+            <div className="direct-chat-recipient">
+              <ChatAvatar
+                name={directChatTarget.displayName}
+                imageUrl={memberApi.getProfileImageUrl(directChatTarget.memberId)}
+                className="friend-list-avatar"
+              />
+              <div>
+                <span>RECIPIENT</span>
+                <strong id="direct-chat-dialog-title">
+                  {directChatTarget.displayName}
+                </strong>
+              </div>
+            </div>
+            <form
+              className="direct-chat-form"
+              onSubmit={(event) => void handleSendFirstDirectMessage(event)}
+            >
+              <label htmlFor="direct-message">FIRST_MESSAGE</label>
+              <div>
+                <span aria-hidden="true">$</span>
+                <input
+                  id="direct-message"
+                  type="text"
+                  value={directMessageDraft}
+                  maxLength={1000}
+                  onChange={(event) => setDirectMessageDraft(event.target.value)}
+                  placeholder="첫 메시지를 입력하세요"
+                  disabled={isSendingDirectMessage}
+                  autoFocus
+                />
+              </div>
+              {directChatError && (
+                <p className="profile-image-error" role="alert">
+                  {directChatError}
+                </p>
+              )}
+              <footer>
+                <button
+                  className="cancel-profile-image-button"
+                  type="button"
+                  onClick={handleCloseDirectChatModal}
+                  disabled={isSendingDirectMessage}
+                >
+                  취소
+                </button>
+                <button
+                  className="confirm-profile-image-button"
+                  type="submit"
+                  disabled={isSendingDirectMessage || !directMessageDraft.trim()}
+                >
+                  {isSendingDirectMessage ? "전송 중..." : "채팅 시작"}
+                </button>
+              </footer>
+            </form>
           </section>
         </div>
       )}
@@ -4775,7 +5104,9 @@ export function ChatPage() {
             <h2 id="leave-room-dialog-title">{leaveTargetRoom.name ?? "Direct"}</h2>
             <p className="leave-room-description">
               이 채팅방에서 나가시겠습니까?<br />
-              재참여하기 전까지 새로운 메시지를 받을 수 없습니다.
+              {leaveTargetRoom.type === "DIRECT"
+                ? "친구가 새 메시지를 보내면 대화 목록에 다시 표시됩니다."
+                : "재참여하기 전까지 새로운 메시지를 받을 수 없습니다."}
             </p>
 
             {leaveRoomError && (

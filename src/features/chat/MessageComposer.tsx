@@ -12,6 +12,7 @@ interface MessageComposerProps {
   isConnected: boolean;
   isActiveRoomDeleted: boolean;
   isUploadingAttachment: boolean;
+  sendBlockedReason: string;
   nickname: string;
   ownProfileImageUrl: string | null;
   error: string;
@@ -24,6 +25,7 @@ export function MessageComposer({
   isConnected,
   isActiveRoomDeleted,
   isUploadingAttachment,
+  sendBlockedReason,
   nickname,
   ownProfileImageUrl,
   error,
@@ -32,7 +34,10 @@ export function MessageComposer({
 }: MessageComposerProps) {
   const [message, setMessage] = useState("");
   const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const isComposerDisabled = !activeRoom || !isConnected || isActiveRoomDeleted;
+  const isComposerDisabled = !activeRoom
+    || !isConnected
+    || isActiveRoomDeleted
+    || Boolean(sendBlockedReason);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -43,7 +48,11 @@ export function MessageComposer({
 
   return (
     <footer className="composer-area">
-      {error && <p className="chat-error" role="alert">{error}</p>}
+      {(sendBlockedReason || error) && (
+        <p className="chat-error" role="alert">
+          {sendBlockedReason || error}
+        </p>
+      )}
       <form className="message-composer" onSubmit={handleSubmit}>
         <input
           ref={attachmentInputRef}
@@ -65,9 +74,11 @@ export function MessageComposer({
           id="message"
           value={message}
           onChange={(event) => setMessage(event.target.value)}
-          placeholder={activeRoom
-            ? `${activeRoom.name ?? "Direct"}에 메시지 보내기`
-            : "채팅방을 선택해주세요"}
+          placeholder={sendBlockedReason
+            ? "친구 관계가 해제되어 메시지를 보낼 수 없습니다"
+            : activeRoom
+              ? `${activeRoom.name ?? "Direct"}에 메시지 보내기`
+              : "채팅방을 선택해주세요"}
           disabled={isComposerDisabled}
         />
         <button

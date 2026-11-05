@@ -1,16 +1,17 @@
 import { httpClient } from "../../shared/api/httpClient";
+import type { MemberStatus } from "../member/api";
 
 export interface FriendListResponse {
   memberId: number;
-  email: string;
-  nickname: string;
+  displayName: string;
   statusMessage: string | null;
+  status: MemberStatus;
 }
 
 export interface FriendRequestResponse {
   requestId: number;
   targetMemberId: number;
-  targetNickname: string;
+  targetDisplayName: string;
   createdAt: string;
 }
 

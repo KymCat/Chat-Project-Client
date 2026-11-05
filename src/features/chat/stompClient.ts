@@ -1,7 +1,12 @@
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { webSocketUrl } from "../../shared/config/env";
-import type { ChatMessageEvent, ChatRoomEvent } from "./api";
+import type {
+  ChatErrorEvent,
+  ChatMessageEvent,
+  ChatRoomEvent,
+  DirectChatResponse,
+} from "./api";
 
 export type { ChatMessageEvent, ChatRoomEvent } from "./api";
 
@@ -18,6 +23,8 @@ interface ChatAttachmentMessageRequest {
 interface ConnectOptions {
   accessToken: string;
   onMessage: (event: ChatMessageEvent) => void;
+  onDirectMessage: (response: DirectChatResponse) => void;
+  onChatError: (event: ChatErrorEvent) => void;
   onRoomEvent: (event: ChatRoomEvent) => void;
   onStatusChange: (connected: boolean) => void;
   onReconnect: () => void;
@@ -28,6 +35,8 @@ export function connectChat(options: ConnectOptions) {
   const subscribedRoomIds = new Set<number>();
   const messageSubscriptions = new Map<number, StompSubscription>();
   const roomSubscriptions = new Map<number, StompSubscription>();
+  let directMessageSubscription: StompSubscription | null = null;
+  let chatErrorSubscription: StompSubscription | null = null;
   let hasConnectedOnce = false;
 
   const receive = (frame: IMessage) => {
@@ -43,6 +52,22 @@ export function connectChat(options: ConnectOptions) {
       options.onRoomEvent(JSON.parse(frame.body) as ChatRoomEvent);
     } catch {
       options.onError("수신한 채팅방 정보를 읽을 수 없습니다.");
+    }
+  };
+
+  const receiveDirectMessage = (frame: IMessage) => {
+    try {
+      options.onDirectMessage(JSON.parse(frame.body) as DirectChatResponse);
+    } catch {
+      options.onError("수신한 1:1 채팅을 읽을 수 없습니다.");
+    }
+  };
+
+  const receiveChatError = (frame: IMessage) => {
+    try {
+      options.onChatError(JSON.parse(frame.body) as ChatErrorEvent);
+    } catch {
+      options.onError("채팅 오류 정보를 읽을 수 없습니다.");
     }
   };
 
@@ -73,6 +98,14 @@ export function connectChat(options: ConnectOptions) {
 
       messageSubscriptions.clear();
       roomSubscriptions.clear();
+      directMessageSubscription = client.subscribe(
+        "/user/queue/direct-messages",
+        receiveDirectMessage,
+      );
+      chatErrorSubscription = client.subscribe(
+        "/user/queue/chat-errors",
+        receiveChatError,
+      );
       subscribedRoomIds.forEach(subscribe);
       options.onStatusChange(true);
 
@@ -84,6 +117,8 @@ export function connectChat(options: ConnectOptions) {
     onWebSocketClose: () => {
       messageSubscriptions.clear();
       roomSubscriptions.clear();
+      directMessageSubscription = null;
+      chatErrorSubscription = null;
       options.onStatusChange(false);
     },
     onStompError: () => options.onError("채팅 서버 연결에 실패했습니다."),
@@ -139,8 +174,12 @@ export function connectChat(options: ConnectOptions) {
     disconnect() {
       messageSubscriptions.forEach((subscription) => subscription.unsubscribe());
       roomSubscriptions.forEach((subscription) => subscription.unsubscribe());
+      directMessageSubscription?.unsubscribe();
+      chatErrorSubscription?.unsubscribe();
       messageSubscriptions.clear();
       roomSubscriptions.clear();
+      directMessageSubscription = null;
+      chatErrorSubscription = null;
       subscribedRoomIds.clear();
       void client.deactivate();
     },

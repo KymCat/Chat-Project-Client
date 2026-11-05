@@ -25,6 +25,20 @@ export interface GroupChatRoomResponse {
   lastMessageAt: string | null;
 }
 
+export interface DirectChatRoomResponse {
+  roomId: number | null;
+}
+
+export interface DirectChatRequest {
+  targetMemberId: number;
+  content: string;
+}
+
+export interface DirectChatResponse {
+  roomId: number;
+  message: ChatMessage;
+}
+
 export interface ChatRoomMemberResponse {
   memberId: number;
   displayName: string;
@@ -89,6 +103,12 @@ export interface ChatRoomEvent {
   name: string | null;
 }
 
+export interface ChatErrorEvent {
+  roomId: number;
+  code: string;
+  message: string;
+}
+
 export interface CursorPageResponse<T> {
   content: T[];
   nextCursor: number | null;
@@ -101,6 +121,16 @@ export const chatRoomApi = {
   getAll: () => httpClient.get<ChatRoomResponse[]>("/chat-rooms"),
   getAvailable: () =>
     httpClient.get<GroupChatRoomResponse[]>("/chat-rooms/available"),
+  findDirect: (targetMemberId: number) => {
+    const searchParams = new URLSearchParams({
+      targetMemberId: String(targetMemberId),
+    });
+    return httpClient.get<DirectChatRoomResponse>(
+      `/chat-rooms/direct?${searchParams.toString()}`,
+    );
+  },
+  sendDirectMessage: (request: DirectChatRequest) =>
+    httpClient.post<DirectChatResponse>("/chat-rooms/direct/message", request),
   join: (roomId: number) =>
     httpClient.post<void>(`/chat-rooms/${roomId}/members`),
   leave: (roomId: number) =>
