@@ -7,7 +7,6 @@ export interface LoginRequest {
 
 export interface SignupRequest extends LoginRequest {
   nickname: string;
-  profileImageUrl: string | null;
 }
 
 export interface EmailVerificationConfirmRequest {

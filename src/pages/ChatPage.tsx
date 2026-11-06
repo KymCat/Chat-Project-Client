@@ -149,6 +149,11 @@ function getMessageAvatarColorClass(senderId: number | null) {
   return messageAvatarColorClasses[colorIndex];
 }
 
+function getMessageGroupAccentClass(senderId: number | null) {
+  const colorIndex = Math.abs(senderId ?? 0) % messageAvatarColorClasses.length;
+  return `message-group-accent-${colorIndex + 1}`;
+}
+
 function getTerminalIdentity(
   senderId: number | null,
   senderNickname: string | null,
@@ -349,7 +354,7 @@ export function ChatPage() {
   const [statusMessageDraft, setStatusMessageDraft] = useState("");
   const [isSavingStatusMessage, setIsSavingStatusMessage] = useState(false);
   const [statusMessageError, setStatusMessageError] = useState("");
-  const [profileImageRevision, setProfileImageRevision] = useState(0);
+  const [profileImageRevision, setProfileImageRevision] = useState(() => Date.now());
   const [isUpdatingProfileImage, setIsUpdatingProfileImage] = useState(false);
   const [isProfileImageSourceOpen, setIsProfileImageSourceOpen] = useState(false);
   const [profileImageError, setProfileImageError] = useState("");
@@ -3726,8 +3731,21 @@ export function ChatPage() {
 
           {messages.map((item, index) => {
             const previousMessage = messages[index - 1];
+            const nextMessage = messages[index + 1];
             const shouldShowDate = !previousMessage
               || !isSameMessageDate(previousMessage.createdAt, item.createdAt);
+            const continuesPreviousGroup = item.type !== "SYSTEM"
+              && previousMessage?.type !== "SYSTEM"
+              && previousMessage?.senderId === item.senderId
+              && isSameMessageDate(previousMessage.createdAt, item.createdAt);
+            const continuesNextGroup = item.type !== "SYSTEM"
+              && nextMessage?.type !== "SYSTEM"
+              && nextMessage?.senderId === item.senderId
+              && isSameMessageDate(item.createdAt, nextMessage.createdAt);
+            const shouldShowSenderHeader = !continuesPreviousGroup;
+            const messageGroupPosition = continuesPreviousGroup
+              ? continuesNextGroup ? "middle" : "end"
+              : continuesNextGroup ? "start" : "single";
             const isLatestMessage = index === messages.length - 1;
 
             return (
@@ -3745,42 +3763,48 @@ export function ChatPage() {
                       item.messageId === activeSearchMessageId
                         ? "search-target"
                         : "",
+                      `message-group-${messageGroupPosition}`,
+                      getMessageGroupAccentClass(item.senderId),
                       isLatestMessage ? "is-latest-message" : "",
                     ].filter(Boolean).join(" ")}
                     data-message-id={item.messageId}
                   >
                     <div className="message-content">
-                      <button
-                        className="message-profile-trigger"
-                        type="button"
-                        onClick={() => item.senderId !== null && handleOpenMemberProfile(
-                          item.senderId,
-                          item.senderNickname ?? "알 수 없는 사용자",
-                        )}
-                        disabled={item.senderId === null}
-                        aria-label={`${item.senderNickname ?? "알 수 없는 사용자"} 프로필 열기`}
-                      >
-                        <ChatAvatar
-                          name={item.senderNickname ?? "알 수 없는 사용자"}
-                          imageUrl={item.senderId === null
-                            ? null
-                            : memberApi.getProfileImageUrl(item.senderId)}
-                          className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
-                        />
-                      </button>
-                      <div className="terminal-prompt">
+                      {shouldShowSenderHeader && (
                         <button
-                          className="message-author-name"
+                          className="message-profile-trigger"
                           type="button"
                           onClick={() => item.senderId !== null && handleOpenMemberProfile(
                             item.senderId,
                             item.senderNickname ?? "알 수 없는 사용자",
                           )}
                           disabled={item.senderId === null}
+                          aria-label={`${item.senderNickname ?? "알 수 없는 사용자"} 프로필 열기`}
                         >
-                          @veritas:{getTerminalIdentity(item.senderId, item.senderNickname)}$
+                          <ChatAvatar
+                            name={item.senderNickname ?? "알 수 없는 사용자"}
+                            imageUrl={item.senderId === null
+                              ? null
+                              : memberApi.getProfileImageUrl(item.senderId)}
+                            className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
+                          />
                         </button>
-                      </div>
+                      )}
+                      {shouldShowSenderHeader && (
+                        <div className="terminal-prompt">
+                          <button
+                            className="message-author-name"
+                            type="button"
+                            onClick={() => item.senderId !== null && handleOpenMemberProfile(
+                              item.senderId,
+                              item.senderNickname ?? "알 수 없는 사용자",
+                            )}
+                            disabled={item.senderId === null}
+                          >
+                            @veritas:{getTerminalIdentity(item.senderId, item.senderNickname)}$
+                          </button>
+                        </div>
+                      )}
                       {editingMessageId === item.messageId ? (
                         <form
                           className="message-edit-form"
@@ -3876,41 +3900,47 @@ export function ChatPage() {
                   <article
                     className={[
                       item.senderId === memberId ? "message own" : "message",
+                      `message-group-${messageGroupPosition}`,
+                      getMessageGroupAccentClass(item.senderId),
                       isLatestMessage ? "is-latest-message" : "",
                     ].filter(Boolean).join(" ")}
                   >
                     <div className="message-content">
-                      <button
-                        className="message-profile-trigger"
-                        type="button"
-                        onClick={() => item.senderId !== null && handleOpenMemberProfile(
-                          item.senderId,
-                          item.senderNickname ?? "알 수 없는 사용자",
-                        )}
-                        disabled={item.senderId === null}
-                        aria-label={`${item.senderNickname ?? "알 수 없는 사용자"} 프로필 열기`}
-                      >
-                        <ChatAvatar
-                          name={item.senderNickname ?? "알 수 없는 사용자"}
-                          imageUrl={item.senderId === null
-                            ? null
-                            : memberApi.getProfileImageUrl(item.senderId)}
-                          className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
-                        />
-                      </button>
-                      <div className="terminal-prompt">
+                      {shouldShowSenderHeader && (
                         <button
-                          className="message-author-name"
+                          className="message-profile-trigger"
                           type="button"
                           onClick={() => item.senderId !== null && handleOpenMemberProfile(
                             item.senderId,
                             item.senderNickname ?? "알 수 없는 사용자",
                           )}
                           disabled={item.senderId === null}
+                          aria-label={`${item.senderNickname ?? "알 수 없는 사용자"} 프로필 열기`}
                         >
-                          @veritas:{getTerminalIdentity(item.senderId, item.senderNickname)}$
+                          <ChatAvatar
+                            name={item.senderNickname ?? "알 수 없는 사용자"}
+                            imageUrl={item.senderId === null
+                              ? null
+                              : memberApi.getProfileImageUrl(item.senderId)}
+                            className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
+                          />
                         </button>
-                      </div>
+                      )}
+                      {shouldShowSenderHeader && (
+                        <div className="terminal-prompt">
+                          <button
+                            className="message-author-name"
+                            type="button"
+                            onClick={() => item.senderId !== null && handleOpenMemberProfile(
+                              item.senderId,
+                              item.senderNickname ?? "알 수 없는 사용자",
+                            )}
+                            disabled={item.senderId === null}
+                          >
+                            @veritas:{getTerminalIdentity(item.senderId, item.senderNickname)}$
+                          </button>
+                        </div>
+                      )}
                       <div className="message-bubble-row attachment-message-row">
                         <AttachmentMessageContent message={item} />
                         <time dateTime={item.createdAt}>

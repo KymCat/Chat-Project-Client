@@ -4414,14 +4414,80 @@
 
 .message,
 .message.own {
+  --message-group-accent: #76d993;
   display: block;
+  position: relative;
   width: 100%;
   max-width: none;
   margin: 0 0 14px;
 }
 
 .message.own {
+  --message-group-accent: #aab4ff;
   margin-left: 0;
+}
+
+.message-group-accent-1 {
+  --message-group-accent: #4f9bad;
+}
+
+.message-group-accent-2 {
+  --message-group-accent: #8c7bc1;
+}
+
+.message-group-accent-3 {
+  --message-group-accent: #c06a82;
+}
+
+.message-group-accent-4 {
+  --message-group-accent: #9aa653;
+}
+
+.message.message-group-start,
+.message.message-group-middle {
+  margin-bottom: 0;
+}
+
+.message.message-group-start::before,
+.message.message-group-middle::before,
+.message.message-group-end::before {
+  position: absolute;
+  left: 19px;
+  width: 2px;
+  content: "";
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--message-group-accent) 76%, transparent);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.message.message-group-start::before {
+  top: 46px;
+  bottom: 0;
+}
+
+.message.message-group-middle::before {
+  top: 0;
+  bottom: 0;
+}
+
+.message.message-group-end::before {
+  top: 0;
+  height: 50%;
+}
+
+.message.message-group-middle::after,
+.message.message-group-end::after {
+  position: absolute;
+  top: 50%;
+  left: 19px;
+  width: 18px;
+  height: 2px;
+  content: "";
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--message-group-accent) 76%, transparent);
+  z-index: 0;
+  pointer-events: none;
 }
 
 .message > .message-content,
@@ -6453,6 +6519,7 @@
 
 .message-profile-trigger {
   display: block;
+  position: relative;
   width: 100%;
   padding: 0;
   grid-column: 1;
@@ -6462,6 +6529,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
+  z-index: 1;
 }
 
 .message-profile-trigger .message-author-avatar {

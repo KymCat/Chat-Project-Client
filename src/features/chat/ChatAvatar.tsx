@@ -27,7 +27,15 @@ export const ChatAvatar = memo(function ChatAvatar({
       aria-hidden="true"
     >
       {imageUrl && !imageFailed
-        ? <img src={imageUrl} alt="" onError={() => setImageFailed(true)} />
+        ? (
+          <img
+            src={imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setImageFailed(true)}
+          />
+        )
         : getInitial(name)}
     </span>
   );

@@ -43,7 +43,7 @@ export function AuthForm({ mode }: AuthFormProps) {
 
     try {
       if (isSignup) {
-        await signup({ email, nickname, password, profileImageUrl: null });
+        await signup({ email, nickname, password });
         const redirectSearch = redirectPath === "/chat"
           ? ""
           : `?redirect=${encodeURIComponent(redirectPath)}`;
