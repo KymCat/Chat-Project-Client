@@ -7,7 +7,7 @@ import { readAndClearPendingRedirect } from "../features/auth/redirect";
 export function OAuthCallbackPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { completeOAuthLogin } = useAuth();
+  const { completeOAuthLogin, completeSocialLogoutAll } = useAuth();
   const exchangeStartedRef = useRef(false);
   const [error, setError] = useState("");
 
@@ -19,6 +19,29 @@ export function OAuthCallbackPage() {
     if (oauthError === "true") {
       window.history.replaceState({}, document.title, "/oauth/callback");
       setError("Google 로그인을 완료하지 못했습니다. 다시 시도해주세요.");
+      return;
+    }
+
+    const reauthenticationError = searchParams.get("reauthError");
+    if (reauthenticationError === "true") {
+      window.history.replaceState({}, document.title, "/oauth/callback");
+      setError("Google 재인증을 완료하지 못했습니다. 다시 시도해주세요.");
+      return;
+    }
+
+    const reauthenticationCode = searchParams.get("reauthCode");
+    if (reauthenticationCode) {
+      window.history.replaceState({}, document.title, "/oauth/callback");
+
+      completeSocialLogoutAll(reauthenticationCode)
+        .then(() => navigate("/login", { replace: true }))
+        .catch((requestError) => {
+          setError(
+            requestError instanceof ApiError
+              ? requestError.message
+              : "모든 기기 로그아웃을 완료하지 못했습니다.",
+          );
+        });
       return;
     }
 
@@ -41,7 +64,7 @@ export function OAuthCallbackPage() {
             : "소셜 로그인을 완료하지 못했습니다.",
         );
       });
-  }, [completeOAuthLogin, navigate, searchParams]);
+  }, [completeOAuthLogin, completeSocialLogoutAll, navigate, searchParams]);
 
   return (
     <main className="loading-screen" aria-live="polite">

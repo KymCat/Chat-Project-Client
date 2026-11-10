@@ -20,6 +20,10 @@ interface ChatAttachmentMessageRequest {
   attachmentId: number;
 }
 
+interface AuthWebSocketEvent {
+  type: "FORCE_LOGOUT";
+}
+
 interface ConnectOptions {
   accessToken: string;
   onMessage: (event: ChatMessageEvent) => void;
@@ -28,6 +32,7 @@ interface ConnectOptions {
   onRoomEvent: (event: ChatRoomEvent) => void;
   onStatusChange: (connected: boolean) => void;
   onReconnect: () => void;
+  onForceLogout: () => void;
   onError: (message: string) => void;
 }
 
@@ -37,6 +42,7 @@ export function connectChat(options: ConnectOptions) {
   const roomSubscriptions = new Map<number, StompSubscription>();
   let directMessageSubscription: StompSubscription | null = null;
   let chatErrorSubscription: StompSubscription | null = null;
+  let authSubscription: StompSubscription | null = null;
   let hasConnectedOnce = false;
 
   const receive = (frame: IMessage) => {
@@ -68,6 +74,17 @@ export function connectChat(options: ConnectOptions) {
       options.onChatError(JSON.parse(frame.body) as ChatErrorEvent);
     } catch {
       options.onError("채팅 오류 정보를 읽을 수 없습니다.");
+    }
+  };
+
+  const receiveAuthEvent = (frame: IMessage) => {
+    try {
+      const event = JSON.parse(frame.body) as AuthWebSocketEvent;
+      if (event.type === "FORCE_LOGOUT") {
+        options.onForceLogout();
+      }
+    } catch {
+      options.onError("수신한 인증 정보를 읽을 수 없습니다.");
     }
   };
 
@@ -106,6 +123,10 @@ export function connectChat(options: ConnectOptions) {
         "/user/queue/chat-errors",
         receiveChatError,
       );
+      authSubscription = client.subscribe(
+        "/user/queue/auth",
+        receiveAuthEvent,
+      );
       subscribedRoomIds.forEach(subscribe);
       options.onStatusChange(true);
 
@@ -119,6 +140,7 @@ export function connectChat(options: ConnectOptions) {
       roomSubscriptions.clear();
       directMessageSubscription = null;
       chatErrorSubscription = null;
+      authSubscription = null;
       options.onStatusChange(false);
     },
     onStompError: () => options.onError("채팅 서버 연결에 실패했습니다."),
@@ -176,10 +198,12 @@ export function connectChat(options: ConnectOptions) {
       roomSubscriptions.forEach((subscription) => subscription.unsubscribe());
       directMessageSubscription?.unsubscribe();
       chatErrorSubscription?.unsubscribe();
+      authSubscription?.unsubscribe();
       messageSubscriptions.clear();
       roomSubscriptions.clear();
       directMessageSubscription = null;
       chatErrorSubscription = null;
+      authSubscription = null;
       subscribedRoomIds.clear();
       void client.deactivate();
     },

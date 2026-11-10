@@ -16,6 +16,10 @@ import { Link } from "react-router-dom";
 import "../styles/chat.css";
 import { useAuth } from "../app/AuthProvider";
 import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
+import {
+  authApi,
+  type ReauthenticationMethodResponse,
+} from "../features/auth/api";
 import { AttachmentMessageContent } from "../features/chat/AttachmentMessageContent";
 import { ChatAvatar } from "../features/chat/ChatAvatar";
 import { MessageComposer } from "../features/chat/MessageComposer";
@@ -45,6 +49,7 @@ import {
   type MemberPublicProfileResponse,
   type MemberStatus,
 } from "../features/member/api";
+import { API_BASE_URL } from "../shared/config/env";
 import { readAccessToken } from "../shared/auth/token";
 import { ApiError } from "../shared/api/httpClient";
 
@@ -283,7 +288,12 @@ function mergeMessages(
 }
 
 export function ChatPage() {
-  const { accessToken, logout } = useAuth();
+  const {
+    accessToken,
+    forceLogout,
+    logout,
+    logoutAllSessions,
+  } = useAuth();
   const prefersReducedMotion = useReducedMotion();
   const [rooms, setRooms] = useState<ChatRoomResponse[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
@@ -350,6 +360,16 @@ export function ChatPage() {
     useState<ViewedMemberProfile | null>(null);
   const [memberProfile, setMemberProfile] =
     useState<MemberProfileResponse | null>(null);
+  const [isEditingNickname, setIsEditingNickname] = useState(false);
+  const [nicknameDraft, setNicknameDraft] = useState("");
+  const [isSavingNickname, setIsSavingNickname] = useState(false);
+  const [nicknameError, setNicknameError] = useState("");
+  const [isLogoutAllModalOpen, setIsLogoutAllModalOpen] = useState(false);
+  const [reauthenticationMethod, setReauthenticationMethod] =
+    useState<ReauthenticationMethodResponse | null>(null);
+  const [logoutAllPassword, setLogoutAllPassword] = useState("");
+  const [logoutAllError, setLogoutAllError] = useState("");
+  const [isPreparingLogoutAll, setIsPreparingLogoutAll] = useState(false);
   const [isEditingStatusMessage, setIsEditingStatusMessage] = useState(false);
   const [statusMessageDraft, setStatusMessageDraft] = useState("");
   const [isSavingStatusMessage, setIsSavingStatusMessage] = useState(false);
@@ -1177,6 +1197,7 @@ export function ChatPage() {
       onReconnect: () => {
         void recoverAfterReconnect();
       },
+      onForceLogout: forceLogout,
       onError: setError,
     });
     chatRef.current = connection;
@@ -1187,6 +1208,7 @@ export function ChatPage() {
     };
   }, [
     accessToken,
+    forceLogout,
     handleIncomingDirectMessage,
     isViewingRoomAtBottom,
     markRoomAsRead,
@@ -1750,8 +1772,94 @@ export function ChatPage() {
     await handleLogout();
   };
 
+  const handleOpenLogoutAll = async () => {
+    if (isPreparingLogoutAll) return;
+
+    setIsProfileModalOpen(false);
+    setIsLogoutAllModalOpen(true);
+    setReauthenticationMethod(null);
+    setLogoutAllPassword("");
+    setLogoutAllError("");
+    setIsPreparingLogoutAll(true);
+
+    try {
+      const method = await authApi.getReauthenticationMethod();
+      setReauthenticationMethod(method);
+    } catch (requestError) {
+      setLogoutAllError(
+        requestError instanceof Error
+          ? requestError.message
+          : "재인증 방법을 확인하지 못했습니다.",
+      );
+    } finally {
+      setIsPreparingLogoutAll(false);
+    }
+  };
+
+  const handleCloseLogoutAll = () => {
+    if (isPreparingLogoutAll) return;
+    setIsLogoutAllModalOpen(false);
+    setReauthenticationMethod(null);
+    setLogoutAllPassword("");
+    setLogoutAllError("");
+  };
+
+  const handlePasswordLogoutAll = async () => {
+    if (isPreparingLogoutAll || !logoutAllPassword) return;
+
+    setIsPreparingLogoutAll(true);
+    setLogoutAllError("");
+
+    try {
+      const reauthenticationToken =
+        await authApi.reauthenticateWithPassword({
+          password: logoutAllPassword,
+          purpose: "LOGOUT_ALL",
+        });
+      await logoutAllSessions(reauthenticationToken);
+    } catch (requestError) {
+      setLogoutAllError(
+        requestError instanceof Error
+          ? requestError.message
+          : "모든 기기에서 로그아웃하지 못했습니다.",
+      );
+      setIsPreparingLogoutAll(false);
+    }
+  };
+
+  const handleSocialLogoutAll = async () => {
+    if (
+      isPreparingLogoutAll
+      || reauthenticationMethod?.type !== "SOCIAL"
+      || !reauthenticationMethod.provider
+    ) {
+      return;
+    }
+
+    setIsPreparingLogoutAll(true);
+    setLogoutAllError("");
+
+    try {
+      await authApi.startSocialReauthentication({
+        provider: reauthenticationMethod.provider,
+        purpose: "LOGOUT_ALL",
+      });
+      window.location.assign(`${API_BASE_URL}/oauth2/authorization/google`);
+    } catch (requestError) {
+      setLogoutAllError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Google 재인증을 시작하지 못했습니다.",
+      );
+      setIsPreparingLogoutAll(false);
+    }
+  };
+
   const handleOpenOwnProfile = () => {
     setViewedMemberProfile(null);
+    setIsEditingNickname(false);
+    setNicknameDraft(memberProfile?.nickname ?? "");
+    setNicknameError("");
     setIsEditingStatusMessage(false);
     setStatusMessageDraft(memberProfile?.statusMessage ?? "");
     setStatusMessageError("");
@@ -1985,9 +2093,81 @@ export function ChatPage() {
     setProfileImageRevision(Date.now());
   };
 
+  const handleStartNicknameEdit = () => {
+    setNicknameDraft(memberProfile?.nickname ?? "");
+    setNicknameError("");
+    setIsEditingStatusMessage(false);
+    setStatusMessageError("");
+    setIsEditingNickname(true);
+  };
+
+  const handleCancelNicknameEdit = () => {
+    if (isSavingNickname) return;
+    setNicknameDraft(memberProfile?.nickname ?? "");
+    setNicknameError("");
+    setIsEditingNickname(false);
+  };
+
+  const handleSaveNickname = async () => {
+    if (isSavingNickname) return;
+
+    const normalizedNickname = nicknameDraft.trim();
+    if (normalizedNickname.length < 2 || normalizedNickname.length > 30) {
+      setNicknameError("닉네임은 2자 이상 30자 이하여야 합니다.");
+      return;
+    }
+    if (!/^[a-zA-Z0-9가-힣]+$/.test(normalizedNickname)) {
+      setNicknameError("닉네임은 한글, 영어, 숫자만 가능합니다.");
+      return;
+    }
+    if (normalizedNickname === memberProfile?.nickname) {
+      setNicknameError("");
+      setIsEditingNickname(false);
+      return;
+    }
+
+    setIsSavingNickname(true);
+    setNicknameError("");
+
+    try {
+      await memberApi.updateNickname(normalizedNickname);
+      setMemberProfile((current) => current
+        ? { ...current, nickname: normalizedNickname }
+        : current);
+      if (memberId !== null) {
+        setMessagesByRoom((current) => {
+          const next = { ...current };
+          Object.entries(next).forEach(([roomId, roomMessages]) => {
+            next[Number(roomId)] = roomMessages.map((message) =>
+              message.senderId === memberId
+                ? { ...message, senderNickname: normalizedNickname }
+                : message);
+          });
+          return next;
+        });
+        setRoomMembers((current) => current.map((roomMember) =>
+          roomMember.memberId === memberId
+            ? { ...roomMember, displayName: normalizedNickname }
+            : roomMember));
+      }
+      setNicknameDraft(normalizedNickname);
+      setIsEditingNickname(false);
+    } catch (requestError) {
+      setNicknameError(
+        requestError instanceof Error
+          ? requestError.message
+          : "닉네임을 변경하지 못했습니다.",
+      );
+    } finally {
+      setIsSavingNickname(false);
+    }
+  };
+
   const handleStartStatusMessageEdit = () => {
     setStatusMessageDraft(memberProfile?.statusMessage ?? "");
     setStatusMessageError("");
+    setIsEditingNickname(false);
+    setNicknameError("");
     setIsEditingStatusMessage(true);
   };
 
@@ -2069,6 +2249,7 @@ export function ChatPage() {
   const handleRequestDeleteProfileImage = () => {
     if (isUpdatingProfileImage) return;
 
+    setIsProfileImageSourceOpen(false);
     setPendingProfileImage(null);
     setProfileImageError("");
     setProfileImageAction("delete");
@@ -4813,7 +4994,7 @@ export function ChatPage() {
                 className="close-profile-button"
                 type="button"
                 onClick={() => setIsProfileModalOpen(false)}
-                disabled={isUpdatingProfileImage}
+                disabled={isUpdatingProfileImage || isSavingNickname}
                 aria-label="프로필 닫기"
               >
                 ×
@@ -4821,31 +5002,107 @@ export function ChatPage() {
             </header>
 
             <div className="profile-identity">
-              <ChatAvatar
-                name={nickname}
-                imageUrl={ownProfileImageUrl}
-                className="profile-identity-avatar"
-              />
+              <div className="profile-avatar-column">
+                <ChatAvatar
+                  name={nickname}
+                  imageUrl={ownProfileImageUrl}
+                  className="profile-identity-avatar"
+                />
+                <button
+                  className="profile-image-manage-button"
+                  type="button"
+                  onClick={handleOpenProfileImageSource}
+                  disabled={isUpdatingProfileImage}
+                >
+                  {isUpdatingProfileImage ? "처리 중..." : "사진 관리"}
+                </button>
+              </div>
               <div className="profile-identity-main">
-                <div className="profile-identity-heading">
-                  <strong>{nickname}</strong>
-                  <span className={isConnected ? "is-online" : "is-connecting"}>
-                    {isConnected ? "온라인" : "연결 중"}
+                <div className="profile-nickname-row">
+                  {isEditingNickname ? (
+                    <div className="profile-nickname-form">
+                      <input
+                        type="text"
+                        value={nicknameDraft}
+                        minLength={2}
+                        maxLength={30}
+                        pattern="[a-zA-Z0-9가-힣]+"
+                        onChange={(event) => setNicknameDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void handleSaveNickname();
+                          }
+                          if (event.key === "Escape") {
+                            handleCancelNicknameEdit();
+                          }
+                        }}
+                        disabled={isSavingNickname}
+                        placeholder="2~30자, 한글·영문·숫자"
+                        aria-label="닉네임"
+                        autoFocus
+                      />
+                      <div>
+                        <span>{nicknameDraft.length}/30</span>
+                        <button
+                          type="button"
+                          onClick={handleCancelNicknameEdit}
+                          disabled={isSavingNickname}
+                        >
+                          취소
+                        </button>
+                        <button
+                          className="save"
+                          type="button"
+                          onClick={() => void handleSaveNickname()}
+                          disabled={isSavingNickname}
+                        >
+                          {isSavingNickname ? "저장 중..." : "저장"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="profile-identity-heading">
+                        <strong>{nickname}</strong>
+                        <span className={isConnected ? "is-online" : "is-connecting"}>
+                          {isConnected ? "온라인" : "연결 중"}
+                        </span>
+                      </div>
+                      <button
+                        className="profile-nickname-edit-button"
+                        type="button"
+                        onClick={handleStartNicknameEdit}
+                        disabled={isSavingNickname || isSavingStatusMessage}
+                      >
+                        수정
+                      </button>
+                    </>
+                  )}
+                </div>
+                {nicknameError && (
+                  <p className="profile-nickname-error" role="alert">
+                    {nicknameError}
+                  </p>
+                )}
+                <div className="profile-email-row">
+                  <p className="profile-identity-email">
+                    {memberProfile?.email ?? "이메일 정보 없음"}
+                  </p>
+                  <span className={emailVerified ? "is-verified" : "is-unverified"}>
+                    {emailVerified ? "인증됨" : "미인증"}
                   </span>
                 </div>
-                <p className="profile-identity-email">
-                  {memberProfile?.email ?? "이메일 정보 없음"}
-                </p>
                 <div className="profile-status-message-editor">
                   <div className="profile-status-message-heading">
-                    <span>STATUS_MESSAGE</span>
+                    <span>상태 메시지</span>
                     {!isEditingStatusMessage && (
-                      <button
+                    <button
                         type="button"
                         onClick={handleStartStatusMessageEdit}
-                        disabled={isSavingStatusMessage}
+                        disabled={isSavingStatusMessage || isSavingNickname}
                       >
-                        edit
+                        수정
                       </button>
                     )}
                   </div>
@@ -4898,28 +5155,6 @@ export function ChatPage() {
                     </p>
                   )}
                 </div>
-                <p className="profile-identity-verification">
-                  <span>EMAIL_STATUS</span>
-                  <strong>{emailVerified ? "VERIFIED" : "UNVERIFIED"}</strong>
-                </p>
-                <div className="profile-photo-actions">
-                  <button
-                    className="profile-image-select-button"
-                    type="button"
-                    onClick={handleOpenProfileImageSource}
-                    disabled={isUpdatingProfileImage}
-                  >
-                    {isUpdatingProfileImage ? "처리 중..." : "사진 변경"}
-                  </button>
-                  <button
-                    className="profile-image-delete-button"
-                    type="button"
-                    onClick={handleRequestDeleteProfileImage}
-                    disabled={isUpdatingProfileImage}
-                  >
-                    사진 삭제
-                  </button>
-                </div>
               </div>
             </div>
 
@@ -4944,7 +5179,13 @@ export function ChatPage() {
             </Link>
 
             <footer className="profile-dialog-footer">
-              <span>$ session --status active</span>
+              <button
+                className="profile-logout-all-button"
+                type="button"
+                onClick={() => void handleOpenLogoutAll()}
+              >
+                모든 기기 로그아웃
+              </button>
               <button
                 className="profile-logout-button"
                 type="button"
@@ -4952,6 +5193,87 @@ export function ChatPage() {
               >
                 <span aria-hidden="true">$</span> 로그아웃
               </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {isLogoutAllModalOpen && (
+        <div className="profile-image-confirm-modal" role="presentation">
+          <section
+            className="profile-image-confirm-dialog logout-all-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="logout-all-title"
+          >
+            <p className="eyebrow">$ session --logout-all</p>
+            <h2 id="logout-all-title">모든 기기에서 로그아웃</h2>
+            <p className="profile-image-confirm-description">
+              현재 기기를 포함한 모든 로그인 Session이 종료됩니다.
+            </p>
+
+            {isPreparingLogoutAll && !reauthenticationMethod ? (
+              <p className="logout-all-status">재인증 방법을 확인하고 있습니다.</p>
+            ) : reauthenticationMethod?.type === "PASSWORD" ? (
+              <label className="logout-all-password-field">
+                <span>현재 비밀번호</span>
+                <input
+                  type="password"
+                  value={logoutAllPassword}
+                  minLength={8}
+                  maxLength={30}
+                  autoComplete="current-password"
+                  onChange={(event) => setLogoutAllPassword(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handlePasswordLogoutAll();
+                    }
+                  }}
+                  disabled={isPreparingLogoutAll}
+                  autoFocus
+                />
+              </label>
+            ) : reauthenticationMethod?.type === "SOCIAL" ? (
+              <p className="logout-all-status">
+                연결된 Google 계정으로 본인 확인 후 로그아웃합니다.
+              </p>
+            ) : null}
+
+            {logoutAllError && (
+              <p className="profile-image-error" role="alert">
+                {logoutAllError}
+              </p>
+            )}
+
+            <footer>
+              <button
+                type="button"
+                onClick={handleCloseLogoutAll}
+                disabled={isPreparingLogoutAll}
+              >
+                취소
+              </button>
+              {reauthenticationMethod?.type === "PASSWORD" && (
+                <button
+                  className="confirm-logout-all-button"
+                  type="button"
+                  onClick={() => void handlePasswordLogoutAll()}
+                  disabled={isPreparingLogoutAll || !logoutAllPassword}
+                >
+                  {isPreparingLogoutAll ? "처리 중..." : "모든 기기 로그아웃"}
+                </button>
+              )}
+              {reauthenticationMethod?.type === "SOCIAL" && (
+                <button
+                  className="confirm-logout-all-button"
+                  type="button"
+                  onClick={() => void handleSocialLogoutAll()}
+                  disabled={isPreparingLogoutAll}
+                >
+                  {isPreparingLogoutAll ? "이동 중..." : "Google로 본인 확인"}
+                </button>
+              )}
             </footer>
           </section>
         </div>
@@ -4966,9 +5288,9 @@ export function ChatPage() {
             aria-labelledby="profile-image-source-title"
           >
             <p className="eyebrow">$ profile --image --source</p>
-            <h2 id="profile-image-source-title">프로필 사진을 선택하세요.</h2>
+            <h2 id="profile-image-source-title">프로필 사진 관리</h2>
             <p className="profile-image-confirm-description">
-              기기의 이미지를 업로드하거나 연결된 Google 계정의 프로필 사진을 사용할 수 있습니다.
+              사진을 업로드하거나 Google 프로필을 적용하고, 현재 사진을 삭제할 수 있습니다.
             </p>
 
             <div className="profile-image-source-options">
@@ -4981,6 +5303,15 @@ export function ChatPage() {
                 <span aria-hidden="true">G</span>
                 <strong>Google 프로필</strong>
                 <small>연결된 계정의 사진 사용</small>
+              </button>
+              <button
+                className="is-delete"
+                type="button"
+                onClick={handleRequestDeleteProfileImage}
+              >
+                <span aria-hidden="true">×</span>
+                <strong>현재 사진 삭제</strong>
+                <small>기본 프로필 이미지로 변경</small>
               </button>
             </div>
 

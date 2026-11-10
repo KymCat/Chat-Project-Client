@@ -1,6 +1,7 @@
 import {
   createContext,
   type PropsWithChildren,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -20,6 +21,9 @@ interface AuthContextValue {
   login: (request: LoginRequest) => Promise<void>;
   signup: (request: SignupRequest) => Promise<void>;
   logout: () => Promise<void>;
+  logoutAllSessions: (reauthenticationToken: string) => Promise<void>;
+  completeSocialLogoutAll: (code: string) => Promise<void>;
+  forceLogout: () => void;
   refreshSession: () => Promise<void>;
   completeOAuthLogin: (code: string) => Promise<void>;
   completeLoginTransition: () => void;
@@ -32,6 +36,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isLoginTransitionPending, setIsLoginTransitionPending] = useState(false);
+
+  const clearAuthentication = useCallback(() => {
+    saveAccessToken(null);
+    setAccessToken(null);
+    setIsLoginTransitionPending(false);
+  }, []);
 
   useEffect(() => {
     if (pathname === "/oauth/callback") {
@@ -75,11 +85,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
         try {
           await authApi.logout();
         } finally {
-          saveAccessToken(null);
-          setAccessToken(null);
-          setIsLoginTransitionPending(false);
+          clearAuthentication();
         }
       },
+      logoutAllSessions: async (reauthenticationToken) => {
+        await authApi.logoutAllSessions(reauthenticationToken);
+        clearAuthentication();
+      },
+      completeSocialLogoutAll: async (code) => {
+        await refreshAccessToken();
+        const reauthenticationToken =
+          await authApi.exchangeSocialReauthenticationCode(code);
+        await authApi.logoutAllSessions(reauthenticationToken);
+        clearAuthentication();
+      },
+      forceLogout: clearAuthentication,
       refreshSession: async () => {
         const token = await refreshAccessToken();
         setAccessToken(token);
@@ -92,7 +112,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       },
       completeLoginTransition: () => setIsLoginTransitionPending(false),
     }),
-    [accessToken, isBootstrapping, isLoginTransitionPending],
+    [accessToken, clearAuthentication, isBootstrapping, isLoginTransitionPending],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

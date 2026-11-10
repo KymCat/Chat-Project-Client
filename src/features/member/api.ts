@@ -46,6 +46,8 @@ export const memberApi = {
     httpClient.put<void>("/member/me/profile-image/social", { provider }),
   deleteProfileImage: () =>
     httpClient.delete<void>("/member/me/profile-image"),
+  updateNickname: (newNickname: string) =>
+    httpClient.patch<void>("/member/me/nickname", { newNickname }),
   updateStatusMessage: (newStatusMessage: string | null) =>
     httpClient.patch<void>("/member/me/status-message", { newStatusMessage }),
 };

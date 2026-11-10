@@ -4682,12 +4682,12 @@
 
 .message.own .message-bubble-row p {
   margin-left: 0;
-  color: #cbd1ff;
+  color: #d8e1dc;
 }
 
 .message.own .message-bubble-row {
-  border-left: 2px solid rgba(130, 145, 255, 0.52);
-  background: linear-gradient(90deg, rgba(130, 145, 255, 0.08), transparent 54%);
+  border-left: 0;
+  background: transparent;
 }
 
 .message-bubble-row time {
@@ -6353,6 +6353,77 @@
   white-space: nowrap;
 }
 
+.profile-nickname-edit-button {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  color: #76d993;
+  background: transparent;
+  font: 700 10px/1 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.profile-nickname-edit-button:disabled {
+  cursor: wait;
+  opacity: 0.52;
+}
+
+.profile-nickname-form {
+  display: grid;
+  gap: 7px;
+}
+
+.profile-nickname-form > input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #3b4b41;
+  border-radius: 3px;
+  outline: 0;
+  color: #dce8df;
+  background: #0d1310;
+  font: 500 var(--ui-text-xs)/1.4 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.profile-nickname-form > input:focus {
+  border-color: #5da874;
+  box-shadow: 0 0 0 3px rgba(93, 168, 116, 0.1);
+}
+
+.profile-nickname-form > div {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.profile-nickname-form > div > span {
+  margin-right: auto;
+  color: #59655e;
+  font-size: 9px;
+}
+
+.profile-nickname-form button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #333e37;
+  border-radius: 3px;
+  color: #8f9e94;
+  background: #111715;
+  font: 700 10px/1 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.profile-nickname-form button.save {
+  border-color: #477356;
+  color: #c8f5d3;
+  background: #142019;
+}
+
+.profile-nickname-error {
+  margin: 0;
+  color: #ff8ca6;
+  font-size: var(--ui-text-xs);
+}
+
 .profile-identity-heading > span {
   display: inline-flex;
   flex: 0 0 auto;
@@ -6979,6 +7050,11 @@
   .message,
   .message.own {
     margin-bottom: clamp(1rem, 0.9vw, 1.375rem);
+  }
+
+  .message.own.message-group-start,
+  .message.own.message-group-middle {
+    margin-bottom: 0;
   }
 
   .message-bubble-row p,
@@ -7940,6 +8016,312 @@
 .profile-status-message-error {
   color: #ff8ca6 !important;
   white-space: normal !important;
+}
+
+/* Simplified own profile hierarchy */
+.profile-dialog {
+  font-family: var(--font-ui);
+}
+
+.profile-dialog .eyebrow {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.profile-identity {
+  align-items: start;
+}
+
+.profile-avatar-column {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.profile-image-manage-button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #3b4b41;
+  border-radius: 3px;
+  color: #c8f5d3;
+  background: #142019;
+  font: 600 var(--ui-text-xs)/1 var(--font-ui);
+}
+
+.profile-image-manage-button:hover:not(:disabled) {
+  border-color: #76d993;
+  color: #effff3;
+}
+
+.profile-image-manage-button:disabled {
+  cursor: wait;
+  opacity: 0.52;
+}
+
+.profile-identity-main {
+  gap: 14px;
+}
+
+.profile-nickname-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.profile-identity-heading {
+  flex: 1 1 auto;
+}
+
+.profile-identity-heading > strong {
+  font: 700 var(--ui-text-md)/1.35 var(--font-ui);
+}
+
+.profile-identity-heading > span {
+  font: 500 var(--ui-text-xs)/1.2 var(--font-ui);
+}
+
+.profile-nickname-edit-button,
+.profile-status-message-heading > button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  margin-left: auto;
+  padding: 0 9px;
+  border: 1px solid #35433a;
+  border-radius: 3px;
+  color: #a9d8b5;
+  background: #111715;
+  font: 600 var(--ui-text-xs)/1 var(--font-ui);
+}
+
+.profile-nickname-edit-button:hover:not(:disabled),
+.profile-status-message-heading > button:hover:not(:disabled) {
+  border-color: #5da874;
+  color: #d8f7df;
+  background: #17201a;
+}
+
+.profile-nickname-form {
+  width: 100%;
+}
+
+.profile-nickname-form > input,
+.profile-status-message-form > input {
+  min-height: var(--ui-control-height);
+  font: 400 var(--ui-text-sm)/1.4 var(--font-ui);
+}
+
+.profile-nickname-form > div > span,
+.profile-status-message-form > div > span {
+  font: 400 var(--ui-text-xs)/1.2 var(--font-ui);
+}
+
+.profile-nickname-form button,
+.profile-status-message-form button {
+  min-height: 32px;
+  font: 500 var(--ui-text-xs)/1 var(--font-ui);
+}
+
+.profile-nickname-form button.save,
+.profile-status-message-form button.save {
+  font-weight: 600;
+}
+
+.profile-nickname-error,
+.profile-status-message-error {
+  font: 400 var(--ui-text-xs)/1.5 var(--font-ui);
+}
+
+.profile-email-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-identity-email {
+  flex: 1 1 auto;
+  font: 400 var(--ui-text-sm)/1.4 var(--font-ui);
+}
+
+.profile-email-row > span {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid #35433a;
+  border-radius: 999px;
+  color: #76d993;
+  background: #121a15;
+  font: 500 var(--ui-text-xs)/1 var(--font-ui);
+}
+
+.profile-email-row > span.is-unverified {
+  border-color: #594b32;
+  color: #d8b66f;
+  background: #1d1911;
+}
+
+.profile-status-message-editor {
+  margin-top: 0;
+  padding-top: 13px;
+  border-top: 1px solid #202722;
+  gap: 8px;
+}
+
+.profile-status-message-heading > span,
+.profile-status-message-editor > p {
+  font-family: var(--font-ui);
+  letter-spacing: 0;
+}
+
+.profile-status-message-heading > span {
+  color: #7d8b82;
+  font-size: var(--ui-text-xs);
+  font-weight: 500;
+}
+
+.profile-status-message-editor > p {
+  color: #b7c8bc;
+  font-size: var(--ui-text-sm);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.profile-privacy-link {
+  min-height: 34px;
+  font: 500 var(--ui-text-xs)/1 var(--font-ui);
+}
+
+.profile-privacy-link > span {
+  font-size: var(--ui-text-sm);
+}
+
+.profile-dialog-footer {
+  justify-content: flex-end;
+}
+
+.profile-dialog-footer .profile-logout-button {
+  font-family: var(--font-ui);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+}
+
+.profile-dialog-footer .profile-logout-all-button {
+  min-height: 34px;
+  margin-right: auto;
+  padding: 0 12px;
+  border: 1px solid #4a3f32;
+  border-radius: 3px;
+  color: #d9b982;
+  background: #18150f;
+  font-family: var(--font-ui);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+}
+
+.profile-dialog-footer .profile-logout-all-button:hover:not(:disabled) {
+  border-color: #8a6e45;
+  color: #f3d7a6;
+  background: #211b12;
+}
+
+.logout-all-dialog {
+  font-family: var(--font-ui);
+}
+
+.logout-all-status {
+  margin: 18px 0 0;
+  color: #aab8ae;
+  font-size: var(--ui-text-sm);
+  line-height: 1.6;
+}
+
+.logout-all-password-field {
+  display: grid;
+  margin-top: 18px;
+  gap: 8px;
+}
+
+.logout-all-password-field > span {
+  color: #8f9e94;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+}
+
+.logout-all-password-field > input {
+  width: 100%;
+  min-height: var(--ui-control-height);
+  padding: 0 11px;
+  border: 1px solid #3b4b41;
+  border-radius: 3px;
+  outline: 0;
+  color: #dce8df;
+  background: #0d1310;
+  font: 400 var(--ui-text-sm)/1.4 var(--font-ui);
+}
+
+.logout-all-password-field > input:focus {
+  border-color: #5da874;
+  box-shadow: 0 0 0 3px rgba(93, 168, 116, 0.1);
+}
+
+.logout-all-password-field > input:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.logout-all-dialog footer .confirm-logout-all-button {
+  border-color: rgba(255, 145, 172, 0.48);
+  color: #ffafc2;
+  background: #211317;
+}
+
+.logout-all-dialog footer .confirm-logout-all-button:hover:not(:disabled) {
+  border-color: #ff91ac;
+  color: #ffd3dd;
+  background: #2b171d;
+}
+
+.profile-image-source-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.profile-image-source-options > button {
+  font-family: var(--font-ui);
+  font-weight: 400;
+}
+
+.profile-image-source-options strong {
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.profile-image-source-options small {
+  font-size: var(--ui-text-xs);
+  font-weight: 400;
+}
+
+.profile-image-source-options > button.is-delete {
+  border-color: #4c343c;
+  color: #e7b3bf;
+  background: #191114;
+}
+
+.profile-image-source-options > button.is-delete > span {
+  color: #ff8ca6;
+}
+
+.profile-image-source-options > button.is-delete:hover {
+  border-color: #8a4c5d;
+  background: #21161a;
+}
+
+@media (max-width: 680px) {
+  .profile-image-source-options {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-image-source-options > button {
+    min-height: 96px;
+  }
 }
 
 .friend-removal-dialog {
