@@ -104,7 +104,8 @@ export interface ChatRoomEvent {
 }
 
 export interface MemberEvent {
-  type: "BLOCKED";
+  // 수정: 차단 해제 visibility 이벤트도 같은 STOMP queue에서 수신한다.
+  type: "BLOCKED" | "UNBLOCKED";
   memberId: number;
 }
 

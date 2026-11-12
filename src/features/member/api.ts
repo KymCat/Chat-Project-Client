@@ -1,5 +1,4 @@
 import { httpClient } from "../../shared/api/httpClient";
-import { API_BASE_URL } from "../../shared/config/env";
 
 export interface MemberProfileResponse {
   nickname: string;
@@ -32,10 +31,10 @@ export const memberApi = {
   getProfile: () => httpClient.get<MemberProfileResponse>("/member/me"),
   getPublicProfile: (memberId: number) =>
     httpClient.get<MemberPublicProfileResponse>(`/member/${memberId}/profile`),
-  getProfileImageUrl: (memberId: number, revision?: number) => {
-    const path = `/member/${memberId}/profile-image`;
-    return `${API_BASE_URL}${path}${revision ? `?v=${revision}` : ""}`;
-  },
+  getProfileImage: (memberId: number, revision?: number) =>
+    httpClient.getBlob(
+      `/member/${memberId}/profile-image${revision ? `?v=${revision}` : ""}`,
+    ),
   uploadProfileImage: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);

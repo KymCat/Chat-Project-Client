@@ -46,6 +46,7 @@ import {
   type MemberPublicProfileResponse,
   type MemberStatus,
 } from "../features/member/api";
+import { clearProfileImageCache } from "../features/member/profileImage";
 import { readAccessToken } from "../shared/auth/token";
 import { ApiError } from "../shared/api/httpClient";
 import { TerminalModalTransition } from "../shared/ui/TerminalModalTransition";
@@ -386,6 +387,9 @@ export function ChatPage() {
   const [isMemberListOpen, setIsMemberListOpen] = useState(false);
   const [isRoomMenuOpen, setIsRoomMenuOpen] = useState(false);
   const [roomMembers, setRoomMembers] = useState<ChatRoomMemberResponse[]>([]);
+  // 추가: 차단·해제 이벤트 발생 시 현재 Group 참여자 목록을 다시 조회한다.
+  const [roomMemberVisibilityRevision, setRoomMemberVisibilityRevision] =
+    useState(0);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [memberListError, setMemberListError] = useState("");
   const [ownerTransferTarget, setOwnerTransferTarget] =
@@ -444,9 +448,6 @@ export function ChatPage() {
   );
   const memberId = claims?.sub ? Number(claims.sub) : null;
   const nickname = memberProfile?.nickname ?? "사용자";
-  const ownProfileImageUrl = memberId === null
-    ? null
-    : memberApi.getProfileImageUrl(memberId, profileImageRevision);
   const inviteUrl = inviteLink
     ? `${window.location.origin}/invite/${encodeURIComponent(inviteLink.token)}`
     : "";
@@ -948,36 +949,41 @@ export function ChatPage() {
     }
   }, [isViewingRoomAtBottom, loadRooms, markRoomAsRead]);
 
-  const handleMemberBlocked = useCallback((event: MemberEvent) => {
-    if (event.type !== "BLOCKED") return;
+  const handleMemberVisibilityChanged = useCallback((event: MemberEvent) => {
+    const changedMemberId = event.memberId;
 
-    const hiddenMemberId = event.memberId;
+    clearProfileImageCache(changedMemberId);
 
-    setViewedMemberProfile((current) =>
-      current?.memberId === hiddenMemberId ? null : current);
-    setFriendRemovalTarget((current) =>
-      current?.memberId === hiddenMemberId ? null : current);
-    setDirectChatTarget((current) =>
-      current?.memberId === hiddenMemberId ? null : current);
-    setOwnerTransferTarget((current) =>
-      current?.memberId === hiddenMemberId ? null : current);
+    if (event.type === "BLOCKED") {
+      setViewedMemberProfile((current) =>
+        current?.memberId === changedMemberId ? null : current);
+      setFriendRemovalTarget((current) =>
+        current?.memberId === changedMemberId ? null : current);
+      setDirectChatTarget((current) =>
+        current?.memberId === changedMemberId ? null : current);
+      setOwnerTransferTarget((current) =>
+        current?.memberId === changedMemberId ? null : current);
 
-    setFriends((current) =>
-      current.filter((friend) => friend.memberId !== hiddenMemberId));
-    setSentFriendRequests((current) => ({
-      ...current,
-      content: current.content.filter(
-        (request) => request.targetMemberId !== hiddenMemberId,
-      ),
-    }));
-    setReceivedFriendRequests((current) => ({
-      ...current,
-      content: current.content.filter(
-        (request) => request.targetMemberId !== hiddenMemberId,
-      ),
-    }));
-    setRoomMembers((current) =>
-      current.filter((roomMember) => roomMember.memberId !== hiddenMemberId));
+      setFriends((current) =>
+        current.filter((friend) => friend.memberId !== changedMemberId));
+      setSentFriendRequests((current) => ({
+        ...current,
+        content: current.content.filter(
+          (request) => request.targetMemberId !== changedMemberId,
+        ),
+      }));
+      setReceivedFriendRequests((current) => ({
+        ...current,
+        content: current.content.filter(
+          (request) => request.targetMemberId !== changedMemberId,
+        ),
+      }));
+      setRoomMembers((current) =>
+        current.filter((roomMember) => roomMember.memberId !== changedMemberId));
+    }
+
+    // 추가: BLOCKED와 UNBLOCKED 모두 서버의 최신 visibility 기준으로 재조회한다.
+    setRoomMemberVisibilityRevision((current) => current + 1);
 
     messageVisibilityRevisionRef.current += 1;
     loadingMessageRoomIdsRef.current.clear();
@@ -1008,6 +1014,7 @@ export function ChatPage() {
 
   useEffect(() => {
     if (!accessToken) {
+      clearProfileImageCache();
       setMemberProfile(null);
       setFriends([]);
       setSentFriendRequests(emptyFriendRequestPage);
@@ -1242,7 +1249,7 @@ export function ChatPage() {
         removeRoomState(event.roomId);
         setRoomEventToast(`'${roomName}' 채팅방이 삭제되었습니다.`);
       },
-      onMemberEvent: handleMemberBlocked,
+      onMemberEvent: handleMemberVisibilityChanged,
       onStatusChange: setIsConnected,
       onReconnect: () => {
         void recoverAfterReconnect();
@@ -1260,7 +1267,7 @@ export function ChatPage() {
     accessToken,
     forceLogout,
     handleIncomingDirectMessage,
-    handleMemberBlocked,
+    handleMemberVisibilityChanged,
     isViewingRoomAtBottom,
     markRoomAsRead,
     memberId,
@@ -2307,7 +2314,12 @@ export function ChatPage() {
     }
 
     void loadRoomMembers(activeRoomId);
-  }, [activeRoom?.type, activeRoomId, loadRoomMembers]);
+  }, [
+    activeRoom?.type,
+    activeRoomId,
+    loadRoomMembers,
+    roomMemberVisibilityRevision,
+  ]);
 
   const handleToggleMemberList = () => {
     if (isMemberListOpen) {
@@ -2935,7 +2947,8 @@ export function ChatPage() {
             >
               <ChatAvatar
                 name={nickname}
-                imageUrl={ownProfileImageUrl}
+                memberId={memberId}
+                imageRevision={profileImageRevision}
                 className="profile-trigger-avatar"
               />
               <span className="dashboard-action-label">whoami</span>
@@ -3288,7 +3301,7 @@ export function ChatPage() {
                     >
                       <ChatAvatar
                         name={friend.displayName}
-                        imageUrl={memberApi.getProfileImageUrl(friend.memberId)}
+                        memberId={friend.memberId}
                         className="friend-list-avatar"
                       />
                       <span>
@@ -3346,7 +3359,7 @@ export function ChatPage() {
                     >
                       <ChatAvatar
                         name={request.targetDisplayName}
-                        imageUrl={memberApi.getProfileImageUrl(request.targetMemberId)}
+                        memberId={request.targetMemberId}
                         className="friend-list-avatar"
                       />
                       <span>
@@ -3405,7 +3418,7 @@ export function ChatPage() {
                     >
                       <ChatAvatar
                         name={request.targetDisplayName}
-                        imageUrl={memberApi.getProfileImageUrl(request.targetMemberId)}
+                        memberId={request.targetMemberId}
                         className="friend-list-avatar"
                       />
                       <span>
@@ -3534,7 +3547,7 @@ export function ChatPage() {
                             >
                               <ChatAvatar
                                 name={roomMember.displayName}
-                                imageUrl={memberApi.getProfileImageUrl(roomMember.memberId)}
+                                memberId={roomMember.memberId}
                                 className="member-list-avatar"
                               />
                               <span className="member-list-identity">
@@ -3951,9 +3964,7 @@ export function ChatPage() {
                         >
                           <ChatAvatar
                             name={item.senderNickname ?? "알 수 없는 사용자"}
-                            imageUrl={item.senderId === null
-                              ? null
-                              : memberApi.getProfileImageUrl(item.senderId)}
+                            memberId={item.senderId}
                             className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
                           />
                         </button>
@@ -4087,9 +4098,7 @@ export function ChatPage() {
                         >
                           <ChatAvatar
                             name={item.senderNickname ?? "알 수 없는 사용자"}
-                            imageUrl={item.senderId === null
-                              ? null
-                              : memberApi.getProfileImageUrl(item.senderId)}
+                            memberId={item.senderId}
                             className={`message-author-avatar ${getMessageAvatarColorClass(item.senderId)}`}
                           />
                         </button>
@@ -4167,7 +4176,8 @@ export function ChatPage() {
           isUploadingAttachment={isUploadingAttachment}
           sendBlockedReason={activeRoomSendError}
           nickname={nickname}
-          ownProfileImageUrl={ownProfileImageUrl}
+          memberId={memberId}
+          profileImageRevision={profileImageRevision}
           error={error}
           onSend={handleSend}
           onAttachmentSelection={handleAttachmentSelection}
@@ -4730,7 +4740,7 @@ export function ChatPage() {
             <div className="profile-identity profile-identity-public">
               <ChatAvatar
                 name={viewedMemberProfile.displayName}
-                imageUrl={memberApi.getProfileImageUrl(viewedMemberProfile.memberId)}
+                memberId={viewedMemberProfile.memberId}
                 className="profile-identity-avatar"
               />
               <div className="profile-identity-main">
@@ -4884,7 +4894,7 @@ export function ChatPage() {
             <div className="direct-chat-recipient">
               <ChatAvatar
                 name={directChatTarget.displayName}
-                imageUrl={memberApi.getProfileImageUrl(directChatTarget.memberId)}
+                memberId={directChatTarget.memberId}
                 className="friend-list-avatar"
               />
               <div>
@@ -5019,7 +5029,8 @@ export function ChatPage() {
               <div className="profile-avatar-column">
                 <ChatAvatar
                   name={nickname}
-                  imageUrl={ownProfileImageUrl}
+                  memberId={memberId}
+                  imageRevision={profileImageRevision}
                   className="profile-identity-avatar"
                 />
                 <button

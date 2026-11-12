@@ -1,7 +1,10 @@
 import { memo, useEffect, useState } from "react";
+import { useProfileImageUrl } from "../member/profileImage";
 
 interface ChatAvatarProps {
   name: string;
+  memberId?: number | null;
+  imageRevision?: number;
   imageUrl?: string | null;
   className?: string;
 }
@@ -12,24 +15,28 @@ function getInitial(name: string) {
 
 export const ChatAvatar = memo(function ChatAvatar({
   name,
+  memberId = null,
+  imageRevision,
   imageUrl,
   className = "",
 }: ChatAvatarProps) {
   const [imageFailed, setImageFailed] = useState(false);
+  const profileImageUrl = useProfileImageUrl(memberId, imageRevision);
+  const resolvedImageUrl = imageUrl ?? profileImageUrl;
 
   useEffect(() => {
     setImageFailed(false);
-  }, [imageUrl]);
+  }, [resolvedImageUrl]);
 
   return (
     <span
       className={["chat-avatar", className].filter(Boolean).join(" ")}
       aria-hidden="true"
     >
-      {imageUrl && !imageFailed
+      {resolvedImageUrl && !imageFailed
         ? (
           <img
-            src={imageUrl}
+            src={resolvedImageUrl}
             alt=""
             loading="lazy"
             decoding="async"

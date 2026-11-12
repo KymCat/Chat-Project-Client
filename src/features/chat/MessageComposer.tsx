@@ -14,7 +14,8 @@ interface MessageComposerProps {
   isUploadingAttachment: boolean;
   sendBlockedReason: string;
   nickname: string;
-  ownProfileImageUrl: string | null;
+  memberId: number | null;
+  profileImageRevision: number;
   error: string;
   onSend: (content: string) => boolean;
   onAttachmentSelection: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -27,7 +28,8 @@ export function MessageComposer({
   isUploadingAttachment,
   sendBlockedReason,
   nickname,
-  ownProfileImageUrl,
+  memberId,
+  profileImageRevision,
   error,
   onSend,
   onAttachmentSelection,
@@ -64,7 +66,8 @@ export function MessageComposer({
         />
         <ChatAvatar
           name={nickname}
-          imageUrl={ownProfileImageUrl}
+          memberId={memberId}
+          imageRevision={profileImageRevision}
           className="terminal-composer-avatar"
         />
         <span className="terminal-composer-prompt" aria-hidden="true">$</span>
