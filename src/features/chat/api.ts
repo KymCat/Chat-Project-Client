@@ -103,6 +103,11 @@ export interface ChatRoomEvent {
   name: string | null;
 }
 
+export interface MemberEvent {
+  type: "BLOCKED";
+  memberId: number;
+}
+
 export interface ChatErrorEvent {
   roomId: number;
   code: string;

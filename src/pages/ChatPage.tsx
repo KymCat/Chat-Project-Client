@@ -31,6 +31,7 @@ import {
   type DirectChatResponse,
   type GroupChatRoomResponse,
   type InviteLinkExpiration,
+  type MemberEvent,
 } from "../features/chat/api";
 import { connectChat } from "../features/chat/stompClient";
 import {
@@ -431,6 +432,7 @@ export function ChatPage() {
   const isRecoveringConnectionRef = useRef(false);
   const messageSearchRequestIdRef = useRef(0);
   const pendingSearchScrollMessageIdRef = useRef<number | null>(null);
+  const messageVisibilityRevisionRef = useRef(0);
   const friendListRequestIdRef = useRef(0);
   const sentFriendRequestIdRef = useRef(0);
   const receivedFriendRequestIdRef = useRef(0);
@@ -826,6 +828,7 @@ export function ChatPage() {
   ) => {
     if (loadingMessageRoomIdsRef.current.has(roomId)) return false;
 
+    const visibilityRevision = messageVisibilityRevisionRef.current;
     loadingMessageRoomIdsRef.current.add(roomId);
     setMessagePagesByRoom((current) => ({
       ...current,
@@ -840,6 +843,9 @@ export function ChatPage() {
 
     try {
       const response = await chatRoomApi.getMessages(roomId, beforeMessageId);
+      if (visibilityRevision !== messageVisibilityRevisionRef.current) {
+        return false;
+      }
       if (beforeMessageId === null && response.content.length > 0) {
         latestMessageIdByRoomRef.current.set(
           roomId,
@@ -941,6 +947,64 @@ export function ChatPage() {
       void markRoomAsRead(response.roomId, receivedMessage.messageId);
     }
   }, [isViewingRoomAtBottom, loadRooms, markRoomAsRead]);
+
+  const handleMemberBlocked = useCallback((event: MemberEvent) => {
+    if (event.type !== "BLOCKED") return;
+
+    const hiddenMemberId = event.memberId;
+
+    setViewedMemberProfile((current) =>
+      current?.memberId === hiddenMemberId ? null : current);
+    setFriendRemovalTarget((current) =>
+      current?.memberId === hiddenMemberId ? null : current);
+    setDirectChatTarget((current) =>
+      current?.memberId === hiddenMemberId ? null : current);
+    setOwnerTransferTarget((current) =>
+      current?.memberId === hiddenMemberId ? null : current);
+
+    setFriends((current) =>
+      current.filter((friend) => friend.memberId !== hiddenMemberId));
+    setSentFriendRequests((current) => ({
+      ...current,
+      content: current.content.filter(
+        (request) => request.targetMemberId !== hiddenMemberId,
+      ),
+    }));
+    setReceivedFriendRequests((current) => ({
+      ...current,
+      content: current.content.filter(
+        (request) => request.targetMemberId !== hiddenMemberId,
+      ),
+    }));
+    setRoomMembers((current) =>
+      current.filter((roomMember) => roomMember.memberId !== hiddenMemberId));
+
+    messageVisibilityRevisionRef.current += 1;
+    loadingMessageRoomIdsRef.current.clear();
+    latestMessageIdByRoomRef.current.clear();
+    lastReadRequestByRoomRef.current.clear();
+    pendingHistoryScrollRef.current = null;
+    shouldScrollToBottomRef.current = true;
+
+    setMessagesByRoom({});
+    setMessagePagesByRoom({});
+    resetMessageSearch();
+    setEditingMessageId(null);
+    setEditingMessageContent("");
+
+    void Promise.all([
+      loadRooms(undefined, true),
+      loadFriends(true),
+      loadSentFriendRequests(true),
+      loadReceivedFriendRequests(true),
+    ]);
+  }, [
+    loadFriends,
+    loadReceivedFriendRequests,
+    loadRooms,
+    loadSentFriendRequests,
+    resetMessageSearch,
+  ]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -1178,6 +1242,7 @@ export function ChatPage() {
         removeRoomState(event.roomId);
         setRoomEventToast(`'${roomName}' 채팅방이 삭제되었습니다.`);
       },
+      onMemberEvent: handleMemberBlocked,
       onStatusChange: setIsConnected,
       onReconnect: () => {
         void recoverAfterReconnect();
@@ -1195,6 +1260,7 @@ export function ChatPage() {
     accessToken,
     forceLogout,
     handleIncomingDirectMessage,
+    handleMemberBlocked,
     isViewingRoomAtBottom,
     markRoomAsRead,
     memberId,

@@ -6,6 +6,7 @@ import type {
   ChatMessageEvent,
   ChatRoomEvent,
   DirectChatResponse,
+  MemberEvent,
 } from "./api";
 
 export type { ChatMessageEvent, ChatRoomEvent } from "./api";
@@ -30,6 +31,7 @@ interface ConnectOptions {
   onDirectMessage: (response: DirectChatResponse) => void;
   onChatError: (event: ChatErrorEvent) => void;
   onRoomEvent: (event: ChatRoomEvent) => void;
+  onMemberEvent: (event: MemberEvent) => void;
   onStatusChange: (connected: boolean) => void;
   onReconnect: () => void;
   onForceLogout: () => void;
@@ -42,6 +44,7 @@ export function connectChat(options: ConnectOptions) {
   let directMessageSubscription: StompSubscription | null = null;
   let chatErrorSubscription: StompSubscription | null = null;
   let authSubscription: StompSubscription | null = null;
+  let memberEventSubscription: StompSubscription | null = null;
   let hasConnectedOnce = false;
 
   const receive = (frame: IMessage) => {
@@ -87,6 +90,14 @@ export function connectChat(options: ConnectOptions) {
     }
   };
 
+  const receiveMemberEvent = (frame: IMessage) => {
+    try {
+      options.onMemberEvent(JSON.parse(frame.body) as MemberEvent);
+    } catch {
+      options.onError("수신한 회원 정보를 읽을 수 없습니다.");
+    }
+  };
+
   const client = new Client({
     webSocketFactory: () => new SockJS(webSocketUrl),
     connectHeaders: {
@@ -119,6 +130,10 @@ export function connectChat(options: ConnectOptions) {
         "/user/queue/auth",
         receiveAuthEvent,
       );
+      memberEventSubscription = client.subscribe(
+        "/user/queue/member-visibility",
+        receiveMemberEvent,
+      );
       options.onStatusChange(true);
 
       if (reconnected) {
@@ -132,6 +147,7 @@ export function connectChat(options: ConnectOptions) {
       directMessageSubscription = null;
       chatErrorSubscription = null;
       authSubscription = null;
+      memberEventSubscription = null;
       options.onStatusChange(false);
     },
     onStompError: () => options.onError("채팅 서버 연결에 실패했습니다."),
@@ -172,11 +188,13 @@ export function connectChat(options: ConnectOptions) {
       directMessageSubscription?.unsubscribe();
       chatErrorSubscription?.unsubscribe();
       authSubscription?.unsubscribe();
+      memberEventSubscription?.unsubscribe();
       messageSubscription = null;
       chatRoomEventSubscription = null;
       directMessageSubscription = null;
       chatErrorSubscription = null;
       authSubscription = null;
+      memberEventSubscription = null;
       void client.deactivate();
     },
   };
