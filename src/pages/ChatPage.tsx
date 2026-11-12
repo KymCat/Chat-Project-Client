@@ -42,6 +42,7 @@ import {
 } from "../features/friend/api";
 import {
   memberApi,
+  type BlockedMemberResponse,
   type MemberProfileResponse,
   type MemberPublicProfileResponse,
   type MemberStatus,
@@ -66,7 +67,7 @@ interface PendingHistoryScroll {
 }
 
 type ChatGalleryTab = "joined" | "available" | "friends";
-type FriendPanelTab = "accepted" | "received" | "sent";
+type FriendPanelTab = "accepted" | "received" | "sent" | "blocked";
 
 interface DeletedRoomNotice {
   roomId: number;
@@ -97,6 +98,11 @@ interface ViewedMemberProfile {
 interface FriendRemovalTarget {
   memberId: number;
   displayName: string;
+}
+
+interface MemberBlockTarget extends FriendRemovalTarget {
+  action: "BLOCK" | "UNBLOCK";
+  status: MemberStatus;
 }
 
 interface DirectChatTarget {
@@ -316,6 +322,14 @@ export function ChatPage() {
   const [friendOperationKeys, setFriendOperationKeys] = useState<string[]>([]);
   const [friendRemovalTarget, setFriendRemovalTarget] =
     useState<FriendRemovalTarget | null>(null);
+  // 추가: 차단 목록과 차단·해제 확인 상태
+  const [blockedMembers, setBlockedMembers] = useState<BlockedMemberResponse[]>([]);
+  const [isLoadingBlockedMembers, setIsLoadingBlockedMembers] = useState(true);
+  const [blockedMemberListError, setBlockedMemberListError] = useState("");
+  const [memberBlockError, setMemberBlockError] = useState("");
+  const [memberBlockTarget, setMemberBlockTarget] =
+    useState<MemberBlockTarget | null>(null);
+  const [isUpdatingMemberBlock, setIsUpdatingMemberBlock] = useState(false);
   const [directChatTarget, setDirectChatTarget] =
     useState<DirectChatTarget | null>(null);
   const [directMessageDraft, setDirectMessageDraft] = useState("");
@@ -453,6 +467,10 @@ export function ChatPage() {
     : "";
   const emailVerified = claims?.email_verified === true;
   const activeRoom = rooms.find((room) => room.roomId === activeRoomId) ?? null;
+  const blockedMemberIds = useMemo(
+    () => new Set(blockedMembers.map((blockedMember) => blockedMember.memberId)),
+    [blockedMembers],
+  );
   const isActiveRoomDeleted = deletedRoomNotice?.roomId === activeRoomId;
   const activeRoomSendError = activeRoomId === null
     ? ""
@@ -485,12 +503,16 @@ export function ChatPage() {
     ? friendListError
     : friendPanelTab === "received"
       ? receivedFriendRequestError
-      : sentFriendRequestError;
+      : friendPanelTab === "sent"
+        ? sentFriendRequestError
+        : blockedMemberListError;
   const isLoadingActiveFriendPanel = friendPanelTab === "accepted"
     ? isLoadingFriends
     : friendPanelTab === "received"
       ? isLoadingReceivedFriendRequests
-      : isLoadingSentFriendRequests;
+      : friendPanelTab === "sent"
+        ? isLoadingSentFriendRequests
+        : isLoadingBlockedMembers;
   const isFriendRequestOperationRunning = (requestId: number) =>
     friendOperationKeys.includes(`accept:${requestId}`)
     || friendOperationKeys.includes(`delete:${requestId}`);
@@ -695,6 +717,26 @@ export function ChatPage() {
     }
   }, []);
 
+  // 추가: 공개 Profile 버튼과 내 Profile 관리 목록이 같은 차단 상태를 사용한다.
+  const loadBlockedMembers = useCallback(async (silent = false) => {
+    if (!silent) setIsLoadingBlockedMembers(true);
+    if (!silent) setBlockedMemberListError("");
+
+    try {
+      const response = await memberApi.getBlockedMembers();
+      setBlockedMembers(response);
+      setBlockedMemberListError("");
+    } catch (loadError) {
+      setBlockedMemberListError(
+        loadError instanceof Error
+          ? loadError.message
+          : "차단 회원 목록을 불러오지 못했습니다.",
+      );
+    } finally {
+      setIsLoadingBlockedMembers(false);
+    }
+  }, []);
+
   const loadSentFriendRequests = useCallback(async (silent = false) => {
     const requestId = ++sentFriendRequestIdRef.current;
     if (!silent) setIsLoadingSentFriendRequests(true);
@@ -766,8 +808,14 @@ export function ChatPage() {
   const loadFriendPanel = useCallback((tab: FriendPanelTab, silent = false) => {
     if (tab === "accepted") return loadFriends(silent);
     if (tab === "received") return loadReceivedFriendRequests(silent);
-    return loadSentFriendRequests(silent);
-  }, [loadFriends, loadReceivedFriendRequests, loadSentFriendRequests]);
+    if (tab === "sent") return loadSentFriendRequests(silent);
+    return loadBlockedMembers(silent);
+  }, [
+    loadBlockedMembers,
+    loadFriends,
+    loadReceivedFriendRequests,
+    loadSentFriendRequests,
+  ]);
 
   const loadMoreFriendRequests = async (direction: "sent" | "received") => {
     const isSent = direction === "sent";
@@ -1026,6 +1074,12 @@ export function ChatPage() {
       setFriendRemovalError("");
       setFriendNotice("");
       setFriendOperationKeys([]);
+      setBlockedMembers([]);
+      setIsLoadingBlockedMembers(false);
+      setBlockedMemberListError("");
+      setMemberBlockError("");
+      setMemberBlockTarget(null);
+      setIsUpdatingMemberBlock(false);
       setDirectChatTarget(null);
       setDirectMessageDraft("");
       setDirectChatError("");
@@ -1065,10 +1119,12 @@ export function ChatPage() {
       window.history.replaceState({}, document.title, "/chat");
     });
     void loadAvailableRooms();
+    void loadBlockedMembers();
     void refreshReceivedFriendRequests();
   }, [
     accessToken,
     loadAvailableRooms,
+    loadBlockedMembers,
     loadRooms,
     refreshReceivedFriendRequests,
   ]);
@@ -1907,6 +1963,64 @@ export function ChatPage() {
               : "프로필을 갱신하지 못했습니다.",
           }
         : current);
+    }
+  };
+
+  // 추가: 공개 Profile과 차단 관리 목록에서 공통으로 사용하는 확인 요청
+  const handleRequestMemberBlock = (target: MemberBlockTarget) => {
+    if (isUpdatingMemberBlock) return;
+
+    setMemberBlockError("");
+    setMemberBlockTarget(target);
+  };
+
+  const handleConfirmMemberBlock = async () => {
+    if (!memberBlockTarget || isUpdatingMemberBlock) return;
+
+    const target = memberBlockTarget;
+    setIsUpdatingMemberBlock(true);
+    setMemberBlockError("");
+    setFriendNotice("");
+
+    try {
+      if (target.action === "BLOCK") {
+        await memberApi.blockMember(target.memberId);
+        setBlockedMembers((current) => current.some(
+          (blockedMember) => blockedMember.memberId === target.memberId,
+        )
+          ? current
+          : [...current, {
+              memberId: target.memberId,
+              displayName: target.displayName,
+              status: target.status,
+            }]);
+
+        await Promise.all([
+          loadFriends(true),
+          loadSentFriendRequests(true),
+          loadReceivedFriendRequests(true),
+        ]);
+        await refreshViewedMemberProfile(target.memberId);
+        setFriendNotice(`${target.displayName}님을 차단했습니다.`);
+      } else {
+        await memberApi.unblockMember(target.memberId);
+        setBlockedMembers((current) => current.filter(
+          (blockedMember) => blockedMember.memberId !== target.memberId,
+        ));
+        setFriendNotice(`${target.displayName}님의 차단을 해제했습니다.`);
+      }
+
+      setMemberBlockTarget(null);
+    } catch (requestError) {
+      setMemberBlockError(
+        requestError instanceof Error
+          ? requestError.message
+          : target.action === "BLOCK"
+            ? "회원을 차단하지 못했습니다."
+            : "차단을 해제하지 못했습니다.",
+      );
+    } finally {
+      setIsUpdatingMemberBlock(false);
     }
   };
 
@@ -3260,6 +3374,15 @@ export function ChatPage() {
               >
                 requests --sent
               </button>
+              {/* 추가: 관계 관리 흐름 안에서 차단 회원을 관리한다. */}
+              <button
+                className={friendPanelTab === "blocked" ? "active" : ""}
+                type="button"
+                onClick={() => handleSelectFriendPanel("blocked")}
+                aria-current={friendPanelTab === "blocked" ? "page" : undefined}
+              >
+                blocks --list
+              </button>
             </nav>
 
             {friendNotice && (
@@ -3449,6 +3572,55 @@ export function ChatPage() {
                   </button>
                 )}
               </div>
+            )}
+
+            {!isLoadingActiveFriendPanel
+              && !activeFriendPanelError
+              && friendPanelTab === "blocked" && (
+              <motion.div
+                className="terminal-friend-list"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 3 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
+              >
+                {blockedMembers.length === 0 ? (
+                  <p className="friend-list-status">차단한 회원이 없습니다.</p>
+                ) : blockedMembers.map((blockedMember) => (
+                  <article className="terminal-friend-row" key={blockedMember.memberId}>
+                    <button
+                      className="friend-identity-button"
+                      type="button"
+                      onClick={() => handleOpenMemberProfile(
+                        blockedMember.memberId,
+                        blockedMember.displayName,
+                      )}
+                    >
+                      <ChatAvatar
+                        name={blockedMember.displayName}
+                        memberId={blockedMember.memberId}
+                        className="friend-list-avatar"
+                      />
+                      <span>
+                        <strong>{blockedMember.displayName}</strong>
+                        <small>{blockedMember.status.toLocaleLowerCase()}</small>
+                      </span>
+                    </button>
+                    <button
+                      className="friend-row-action"
+                      type="button"
+                      onClick={() => handleRequestMemberBlock({
+                        memberId: blockedMember.memberId,
+                        displayName: blockedMember.displayName,
+                        status: blockedMember.status,
+                        action: "UNBLOCK",
+                      })}
+                      disabled={isUpdatingMemberBlock}
+                    >
+                      unblock
+                    </button>
+                  </article>
+                ))}
+              </motion.div>
             )}
           </motion.section>
         )}
@@ -4791,6 +4963,11 @@ export function ChatPage() {
                 {friendProfileActionError}
               </p>
             )}
+            {blockedMemberListError && (
+              <p className="public-profile-error" role="alert">
+                {blockedMemberListError}
+              </p>
+            )}
             {directChatError && !directChatTarget && (
               <p className="public-profile-error" role="alert">
                 {directChatError}
@@ -4808,6 +4985,7 @@ export function ChatPage() {
               </div>
               <div className="public-profile-relation-actions">
                 {viewedMemberProfile.publicProfile?.status === "ACTIVE"
+                  && !blockedMemberIds.has(viewedMemberProfile.memberId)
                   && viewedMemberProfile.publicProfile.relationStatus === "NONE" && (
                     <button
                       className="profile-relation-button primary"
@@ -4841,7 +5019,8 @@ export function ChatPage() {
                     <span aria-hidden="true">←</span> 받은 요청 확인
                   </button>
                 )}
-                {viewedMemberProfile.publicProfile?.relationStatus === "ACCEPTED" && (
+                {!blockedMemberIds.has(viewedMemberProfile.memberId)
+                  && viewedMemberProfile.publicProfile?.relationStatus === "ACCEPTED" && (
                   <>
                     <button
                       className="profile-relation-button primary"
@@ -4872,6 +5051,34 @@ export function ChatPage() {
                       <span aria-hidden="true">×</span> 친구 끊기
                     </button>
                   </>
+                )}
+                {viewedMemberProfile.publicProfile && !blockedMemberListError && (
+                  <button
+                    className={`profile-relation-button ${
+                      blockedMemberIds.has(viewedMemberProfile.memberId)
+                        ? "neutral"
+                        : "danger"
+                    }`}
+                    type="button"
+                    onClick={() => handleRequestMemberBlock({
+                      memberId: viewedMemberProfile.memberId,
+                      displayName: viewedMemberProfile.displayName,
+                      status: viewedMemberProfile.publicProfile?.status ?? "ACTIVE",
+                      action: blockedMemberIds.has(viewedMemberProfile.memberId)
+                        ? "UNBLOCK"
+                        : "BLOCK",
+                    })}
+                    disabled={isLoadingBlockedMembers || isUpdatingMemberBlock}
+                  >
+                    <span aria-hidden="true">
+                      {blockedMemberIds.has(viewedMemberProfile.memberId) ? "+" : "!"}
+                    </span>
+                    {isLoadingBlockedMembers
+                      ? "차단 상태 확인 중..."
+                      : blockedMemberIds.has(viewedMemberProfile.memberId)
+                        ? "차단 해제"
+                        : "차단"}
+                  </button>
                 )}
               </div>
             </div>
@@ -5216,6 +5423,65 @@ export function ChatPage() {
                 onClick={() => void handleProfileLogout()}
               >
                 <span aria-hidden="true">$</span> 로그아웃
+              </button>
+            </footer>
+          </section>
+        )}
+      </TerminalModalTransition>
+
+      {/* 추가: 차단과 차단 해제에 공통으로 사용하는 확인 modal */}
+      <TerminalModalTransition
+        visible={Boolean(memberBlockTarget)}
+        className="profile-image-confirm-modal"
+      >
+        {memberBlockTarget && (
+          <section
+            className="profile-image-confirm-dialog member-block-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="member-block-title"
+          >
+            <p className="eyebrow">
+              {memberBlockTarget.action === "BLOCK"
+                ? "$ member --block"
+                : "$ member --unblock"}
+            </p>
+            <h2 id="member-block-title">
+              {memberBlockTarget.displayName}님의
+              {memberBlockTarget.action === "BLOCK" ? " 차단" : " 차단을 해제"}하시겠습니까?
+            </h2>
+            <p className="profile-image-confirm-description">
+              {memberBlockTarget.action === "BLOCK"
+                ? "상대방 화면에서 내 프로필과 메시지가 숨겨지며, 친구 관계도 해제됩니다."
+                : "상대방 화면에서 내 프로필과 메시지를 다시 확인할 수 있습니다."}
+            </p>
+            {memberBlockError && (
+              <p className="public-profile-error" role="alert">
+                {memberBlockError}
+              </p>
+            )}
+            <footer>
+              <button
+                className="cancel-profile-image-button"
+                type="button"
+                onClick={() => setMemberBlockTarget(null)}
+                disabled={isUpdatingMemberBlock}
+              >
+                취소
+              </button>
+              <button
+                className={memberBlockTarget.action === "BLOCK"
+                  ? "confirm-profile-image-button is-delete"
+                  : "confirm-profile-image-button"}
+                type="button"
+                onClick={() => void handleConfirmMemberBlock()}
+                disabled={isUpdatingMemberBlock}
+              >
+                {isUpdatingMemberBlock
+                  ? "처리 중..."
+                  : memberBlockTarget.action === "BLOCK"
+                    ? "차단"
+                    : "차단 해제"}
               </button>
             </footer>
           </section>

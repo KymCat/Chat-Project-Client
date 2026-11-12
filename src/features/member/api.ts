@@ -25,12 +25,26 @@ export interface MemberPublicProfileResponse {
   status: MemberStatus;
 }
 
+// 추가: 내 차단 회원 관리 목록 응답
+export interface BlockedMemberResponse {
+  memberId: number;
+  displayName: string;
+  status: MemberStatus;
+}
+
 export type SocialProvider = "GOOGLE";
 
 export const memberApi = {
   getProfile: () => httpClient.get<MemberProfileResponse>("/member/me"),
   getPublicProfile: (memberId: number) =>
     httpClient.get<MemberPublicProfileResponse>(`/member/${memberId}/profile`),
+  // 추가: 회원 차단·해제 및 내 차단 목록 API
+  getBlockedMembers: () =>
+    httpClient.get<BlockedMemberResponse[]>("/member/me/blocks"),
+  blockMember: (memberId: number) =>
+    httpClient.post<void>(`/member/blocks/${memberId}`),
+  unblockMember: (memberId: number) =>
+    httpClient.delete<void>(`/member/blocks/${memberId}`),
   getProfileImage: (memberId: number, revision?: number) =>
     httpClient.getBlob(
       `/member/${memberId}/profile-image${revision ? `?v=${revision}` : ""}`,
