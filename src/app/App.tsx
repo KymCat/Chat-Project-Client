@@ -10,6 +10,12 @@ const ChatPage = lazy(() => import("../pages/ChatPage").then((module) => ({
   default: module.ChatPage,
 })));
 
+const AccountSettingsPage = lazy(() =>
+  import("../pages/AccountSettingsPage").then((module) => ({
+    default: module.AccountSettingsPage,
+  })),
+);
+
 export function App() {
   return (
     <Routes>
@@ -31,6 +37,14 @@ export function App() {
           )}
         />
         <Route path="/invite/:token" element={<InviteJoinPage />} />
+        <Route
+          path="/settings/account"
+          element={(
+            <Suspense fallback={<LoadingScreen />}>
+              <AccountSettingsPage />
+            </Suspense>
+          )}
+        />
       </Route>
       <Route path="*" element={<Navigate to="/chat" replace />} />
     </Routes>

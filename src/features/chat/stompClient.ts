@@ -37,9 +37,8 @@ interface ConnectOptions {
 }
 
 export function connectChat(options: ConnectOptions) {
-  const subscribedRoomIds = new Set<number>();
-  const messageSubscriptions = new Map<number, StompSubscription>();
-  const roomSubscriptions = new Map<number, StompSubscription>();
+  let messageSubscription: StompSubscription | null = null;
+  let chatRoomEventSubscription: StompSubscription | null = null;
   let directMessageSubscription: StompSubscription | null = null;
   let chatErrorSubscription: StompSubscription | null = null;
   let authSubscription: StompSubscription | null = null;
@@ -88,19 +87,6 @@ export function connectChat(options: ConnectOptions) {
     }
   };
 
-  const subscribe = (roomId: number) => {
-    if (!client.connected || messageSubscriptions.has(roomId)) return;
-
-    messageSubscriptions.set(
-      roomId,
-      client.subscribe(`/sub/msg/${roomId}`, receive),
-    );
-    roomSubscriptions.set(
-      roomId,
-      client.subscribe(`/sub/chat-rooms/${roomId}`, receiveRoomEvent),
-    );
-  };
-
   const client = new Client({
     webSocketFactory: () => new SockJS(webSocketUrl),
     connectHeaders: {
@@ -113,8 +99,14 @@ export function connectChat(options: ConnectOptions) {
       const reconnected = hasConnectedOnce;
       hasConnectedOnce = true;
 
-      messageSubscriptions.clear();
-      roomSubscriptions.clear();
+      messageSubscription = client.subscribe(
+        "/user/queue/chat-messages",
+        receive,
+      );
+      chatRoomEventSubscription = client.subscribe(
+        "/user/queue/chat-room-events",
+        receiveRoomEvent,
+      );
       directMessageSubscription = client.subscribe(
         "/user/queue/direct-messages",
         receiveDirectMessage,
@@ -127,7 +119,6 @@ export function connectChat(options: ConnectOptions) {
         "/user/queue/auth",
         receiveAuthEvent,
       );
-      subscribedRoomIds.forEach(subscribe);
       options.onStatusChange(true);
 
       if (reconnected) {
@@ -136,8 +127,8 @@ export function connectChat(options: ConnectOptions) {
     },
     onDisconnect: () => options.onStatusChange(false),
     onWebSocketClose: () => {
-      messageSubscriptions.clear();
-      roomSubscriptions.clear();
+      messageSubscription = null;
+      chatRoomEventSubscription = null;
       directMessageSubscription = null;
       chatErrorSubscription = null;
       authSubscription = null;
@@ -149,24 +140,6 @@ export function connectChat(options: ConnectOptions) {
   client.activate();
 
   return {
-    syncSubscriptions(roomIds: number[]) {
-      const nextRoomIds = new Set(roomIds);
-
-      subscribedRoomIds.forEach((roomId) => {
-        if (nextRoomIds.has(roomId)) return;
-
-        messageSubscriptions.get(roomId)?.unsubscribe();
-        roomSubscriptions.get(roomId)?.unsubscribe();
-        messageSubscriptions.delete(roomId);
-        roomSubscriptions.delete(roomId);
-        subscribedRoomIds.delete(roomId);
-      });
-
-      nextRoomIds.forEach((roomId) => {
-        subscribedRoomIds.add(roomId);
-        subscribe(roomId);
-      });
-    },
     send(roomId: number, content: string) {
       if (!client.connected) {
         throw new Error("채팅 서버에 연결되어 있지 않습니다.");
@@ -194,17 +167,16 @@ export function connectChat(options: ConnectOptions) {
       });
     },
     disconnect() {
-      messageSubscriptions.forEach((subscription) => subscription.unsubscribe());
-      roomSubscriptions.forEach((subscription) => subscription.unsubscribe());
+      messageSubscription?.unsubscribe();
+      chatRoomEventSubscription?.unsubscribe();
       directMessageSubscription?.unsubscribe();
       chatErrorSubscription?.unsubscribe();
       authSubscription?.unsubscribe();
-      messageSubscriptions.clear();
-      roomSubscriptions.clear();
+      messageSubscription = null;
+      chatRoomEventSubscription = null;
       directMessageSubscription = null;
       chatErrorSubscription = null;
       authSubscription = null;
-      subscribedRoomIds.clear();
       void client.deactivate();
     },
   };

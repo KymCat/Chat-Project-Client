@@ -50,4 +50,29 @@ export const memberApi = {
     httpClient.patch<void>("/member/me/nickname", { newNickname }),
   updateStatusMessage: (newStatusMessage: string | null) =>
     httpClient.patch<void>("/member/me/status-message", { newStatusMessage }),
+  changePassword: (
+    newPassword: string,
+    reauthenticationToken: string,
+  ) =>
+    httpClient.patch<void>(
+      "/member/me/password",
+      { newPassword },
+      {
+        headers: {
+          "X-Reauthentication-Token": reauthenticationToken,
+        },
+        retryOnUnauthorized: false,
+      },
+    ),
+  withdrawAccount: (reauthenticationToken: string) =>
+    httpClient.patch<void>(
+      "/member/me/withdraw",
+      undefined,
+      {
+        headers: {
+          "X-Reauthentication-Token": reauthenticationToken,
+        },
+        retryOnUnauthorized: false,
+      },
+    ),
 };

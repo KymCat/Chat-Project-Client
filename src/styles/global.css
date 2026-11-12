@@ -539,6 +539,18 @@ a {
   font-size: 0.875rem;
 }
 
+.form-notice {
+  margin: -10px 0 20px;
+  padding: 12px 14px;
+  border: 1px solid rgba(118, 217, 147, 0.32);
+  border-radius: 10px;
+  color: #bceac9;
+  background: rgba(30, 91, 49, 0.16);
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: left;
+}
+
 .primary-button {
   width: 100%;
   height: 60px;

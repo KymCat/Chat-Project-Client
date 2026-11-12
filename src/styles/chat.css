@@ -6187,17 +6187,20 @@
 
 @keyframes terminal-unread-arrival {
   0% {
-    opacity: 0.68;
-    transform: scale(0.82);
+    opacity: 0.5;
+    color: #76d993;
+    text-shadow: 0 0 0 transparent;
   }
 
-  70% {
-    transform: scale(1.12);
+  55% {
+    opacity: 1;
+    color: #c7f7d3;
+    text-shadow: 0 0 8px rgba(118, 217, 147, 0.34);
   }
 
   100% {
     opacity: 1;
-    transform: scale(1);
+    text-shadow: 0 0 0 transparent;
   }
 }
 
@@ -7239,6 +7242,23 @@
   order: 2;
   flex: 1 1 auto;
   overflow: hidden;
+  animation: terminal-view-enter 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.chat-shell.room-browser .chat-sidebar {
+  animation: terminal-view-enter 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes terminal-view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .chat-view-active .terminal-session-dock {
@@ -7292,6 +7312,13 @@
 
   .return-to-sessions-button {
     padding-right: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-shell.chat-view-active .chat-workspace,
+  .chat-shell.room-browser .chat-sidebar {
+    animation: none;
   }
 }
 
@@ -7672,7 +7699,8 @@
 }
 
 .friend-notice::before {
-  content: "[ok] ";
+  content: "[OK] ";
+  font-weight: 700;
 }
 
 .friend-error {
@@ -8195,6 +8223,7 @@
 }
 
 .profile-dialog-footer {
+  flex-wrap: wrap;
   justify-content: flex-end;
 }
 
@@ -8204,27 +8233,27 @@
   font-weight: 600;
 }
 
-.profile-dialog-footer .profile-logout-all-button {
+.profile-dialog-footer .profile-account-settings-link {
+  display: inline-flex;
   min-height: 34px;
   margin-right: auto;
   padding: 0 12px;
-  border: 1px solid #4a3f32;
+  align-items: center;
+  border: 1px solid #35433a;
   border-radius: 3px;
-  color: #d9b982;
-  background: #18150f;
+  color: #a9d8b5;
+  background: #111715;
   font-family: var(--font-ui);
   font-size: var(--ui-text-xs);
   font-weight: 600;
+  text-decoration: none;
 }
 
-.profile-dialog-footer .profile-logout-all-button:hover:not(:disabled) {
-  border-color: #8a6e45;
-  color: #f3d7a6;
-  background: #211b12;
-}
-
-.logout-all-dialog {
-  font-family: var(--font-ui);
+.profile-dialog-footer .profile-account-settings-link:hover,
+.profile-dialog-footer .profile-account-settings-link:focus-visible {
+  border-color: #5da874;
+  color: #c7f7d3;
+  background: #17201a;
 }
 
 .logout-all-status {
@@ -8266,18 +8295,6 @@
 .logout-all-password-field > input:disabled {
   cursor: wait;
   opacity: 0.6;
-}
-
-.logout-all-dialog footer .confirm-logout-all-button {
-  border-color: rgba(255, 145, 172, 0.48);
-  color: #ffafc2;
-  background: #211317;
-}
-
-.logout-all-dialog footer .confirm-logout-all-button:hover:not(:disabled) {
-  border-color: #ff91ac;
-  color: #ffd3dd;
-  background: #2b171d;
 }
 
 .profile-image-source-options {
@@ -8459,4 +8476,394 @@
 .message-list > .message {
   content-visibility: auto;
   contain-intrinsic-size: auto 96px;
+}
+
+.account-settings-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: clamp(28px, 5vw, 64px) 20px;
+  color: #d8e8dc;
+  background: #0a0e0c;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Noto Sans KR", monospace;
+}
+
+.account-settings-header,
+.account-settings-sections,
+.account-settings-error {
+  width: min(760px, 100%);
+  margin-inline: auto;
+}
+
+.account-settings-header > a {
+  display: inline-flex;
+  margin-bottom: 32px;
+  color: #6f8175;
+  font-size: var(--ui-text-sm);
+  text-decoration: none;
+}
+
+.account-settings-header > a:hover,
+.account-settings-header > a:focus-visible {
+  color: #c7f7d3;
+}
+
+.account-settings-header .eyebrow {
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #263129;
+  color: #76d993;
+  font-size: var(--ui-text-xs);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.account-settings-header h1 {
+  margin: 18px 0 0;
+  color: #eef8f0;
+  font-size: clamp(1.25rem, 3vw, 1.6rem);
+  line-height: 1.4;
+}
+
+.account-settings-header h1::before {
+  color: #76d993;
+  content: "> ";
+}
+
+.account-settings-header > p:last-child {
+  margin: 8px 0 0;
+  color: #718077;
+  font-size: var(--ui-text-sm);
+  line-height: 1.6;
+}
+
+.account-settings-error {
+  margin-top: 24px;
+  padding: 12px 14px;
+  border: 1px solid #74434f;
+  border-radius: 0;
+  color: #ffafc2;
+  background: #160f11;
+  font-size: var(--ui-text-sm);
+}
+
+.account-settings-error::before {
+  content: "error: ";
+  font-weight: 700;
+}
+
+.account-settings-sections {
+  display: grid;
+  margin-top: 30px;
+  gap: 0;
+}
+
+.account-settings-card {
+  display: grid;
+  min-height: 126px;
+  padding: 20px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  border: 1px solid #29332d;
+  border-radius: 0;
+  background: #0d120f;
+}
+
+.account-settings-card + .account-settings-card {
+  border-top: 0;
+}
+
+.account-settings-card > div {
+  min-width: 0;
+}
+
+.account-settings-card-label {
+  margin: 0 0 7px;
+  color: #5fae75;
+  font-size: var(--ui-text-xs);
+  font-weight: 700;
+}
+
+.account-settings-card h2 {
+  margin: 0;
+  color: #e1f0e5;
+  font-size: var(--ui-text-sm);
+  font-weight: 700;
+}
+
+.account-settings-card h2::before {
+  color: #76d993;
+  content: "> ";
+}
+
+.account-settings-card div > p:last-child {
+  max-width: 500px;
+  margin: 8px 0 0;
+  color: #718077;
+  font-size: var(--ui-text-xs);
+  line-height: 1.7;
+}
+
+.account-settings-card > button {
+  min-width: 142px;
+  min-height: var(--ui-control-height);
+  padding: 0 16px;
+  border: 1px solid #3b4b41;
+  border-radius: 0;
+  color: #b9d8c1;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--ui-text-xs);
+  font-weight: 700;
+  text-align: left;
+}
+
+.account-settings-card > button:hover:not(:disabled) {
+  border-color: #5da874;
+  color: #d9f5e0;
+  background: #142019;
+}
+
+.account-settings-card > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.account-settings-danger-zone {
+  border-color: #553039;
+  background: #100d0e;
+}
+
+.account-settings-danger-zone .account-settings-card-label,
+.account-settings-danger-zone h2 {
+  color: #ffafc2;
+}
+
+.account-settings-danger-zone h2::before {
+  color: #ff91ac;
+}
+
+.account-settings-danger-zone > button {
+  border-color: #74434f;
+  color: #ffafc2;
+  background: transparent;
+}
+
+.account-settings-danger-zone > button:hover:not(:disabled) {
+  border-color: #ff91ac;
+  color: #ffd3dd;
+  background: #211317;
+}
+
+.account-action-dialog {
+  border-radius: 0;
+  background: #0a0e0c;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Noto Sans KR", monospace;
+}
+
+.account-action-fields {
+  display: grid;
+  margin-top: 18px;
+  gap: 14px;
+}
+
+.account-action-fields .logout-all-password-field {
+  margin-top: 0;
+}
+
+.account-action-dialog .logout-all-password-field > input,
+.account-action-dialog footer button {
+  border-radius: 0;
+}
+
+.account-action-dialog footer .account-action-confirm-button {
+  border-color: #5da874;
+  color: #c7f7d3;
+  background: #111913;
+}
+
+.account-action-dialog footer .account-action-confirm-button:hover:not(:disabled) {
+  border-color: #76d993;
+  color: #e1f7e7;
+  background: #17201a;
+}
+
+.account-action-dialog.is-danger footer .account-action-confirm-button {
+  border-color: #74434f;
+  color: #ffafc2;
+  background: #160f11;
+}
+
+.account-action-dialog.is-danger footer .account-action-confirm-button:hover:not(:disabled) {
+  border-color: #ff91ac;
+  color: #ffd3dd;
+  background: #2b171d;
+}
+
+@media (max-width: 680px) {
+  .account-settings-shell {
+    padding: 24px 14px 40px;
+  }
+
+  .account-settings-header > a {
+    margin-bottom: 28px;
+  }
+
+  .account-settings-card {
+    padding: 20px;
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .account-settings-card > button {
+    width: 100%;
+  }
+}
+
+/* Terminal command feedback and confirmation panels */
+:where(
+  .create-room-dialog,
+  .profile-dialog,
+  .invite-link-dialog,
+  .join-room-dialog,
+  .leave-room-dialog,
+  .owner-transfer-dialog,
+  .profile-image-confirm-dialog,
+  .attachment-preview-dialog
+) {
+  border: 1px solid #35433a;
+  border-radius: 0;
+  color: #d8e8dc;
+  background: #0a0e0c;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.46);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Noto Sans KR", monospace;
+}
+
+:where(
+  .create-room-dialog,
+  .profile-dialog,
+  .invite-link-dialog,
+  .join-room-dialog,
+  .leave-room-dialog,
+  .owner-transfer-dialog,
+  .profile-image-confirm-dialog,
+  .attachment-preview-dialog
+) .eyebrow {
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #263129;
+  color: #76d993;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+:where(
+  .create-room-dialog,
+  .profile-dialog,
+  .invite-link-dialog,
+  .join-room-dialog,
+  .leave-room-dialog,
+  .owner-transfer-dialog,
+  .profile-image-confirm-dialog
+) h2::before,
+.attachment-confirm-dialog > header strong::before {
+  color: #76d993;
+  content: "> ";
+}
+
+:where(
+  .create-room-dialog,
+  .invite-link-dialog,
+  .join-room-dialog,
+  .leave-room-dialog,
+  .owner-transfer-dialog,
+  .profile-image-confirm-dialog,
+  .attachment-confirm-dialog
+) footer {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #263129;
+}
+
+:where(
+  .create-room-dialog,
+  .invite-link-dialog,
+  .join-room-dialog,
+  .leave-room-dialog,
+  .owner-transfer-dialog,
+  .profile-image-confirm-dialog,
+  .attachment-confirm-dialog
+) footer button {
+  border-radius: 0;
+  font-family: inherit;
+}
+
+:where(
+  .create-room-dialog,
+  .invite-link-dialog,
+  .join-room-dialog,
+  .leave-room-dialog,
+  .owner-transfer-dialog,
+  .profile-image-confirm-dialog,
+  .attachment-confirm-dialog
+) footer button::before {
+  content: "[";
+  opacity: 0.62;
+}
+
+:where(
+  .create-room-dialog,
+  .invite-link-dialog,
+  .join-room-dialog,
+  .leave-room-dialog,
+  .owner-transfer-dialog,
+  .profile-image-confirm-dialog,
+  .attachment-confirm-dialog
+) footer button::after {
+  content: "]";
+  opacity: 0.62;
+}
+
+.invite-link-notice::before {
+  color: #76d993;
+  content: "[OK] ";
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.room-event-toast::before {
+  color: #8f9e94;
+  content: "[INFO] ";
+  font-weight: 700;
+}
+
+:where(
+  .room-create-error,
+  .leave-room-error,
+  .join-room-error,
+  .owner-transfer-error,
+  .profile-image-error,
+  .invite-link-error,
+  .account-settings-error
+)::before,
+:where(
+  .room-list-error,
+  .friend-error,
+  .members-error,
+  .message-history-error
+) > p::before {
+  color: #ff8ca6;
+  content: "[ERR] ";
+  font-weight: 700;
+}
+
+:where(
+  .leave-room-dialog .leave-room-description,
+  .owner-transfer-dialog .owner-transfer-description,
+  .account-action-dialog.is-danger .profile-image-confirm-description
+)::before {
+  color: #d8b66f;
+  content: "[WARN] ";
+  font-weight: 700;
 }

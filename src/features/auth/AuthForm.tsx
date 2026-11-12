@@ -8,6 +8,10 @@ import {
   getRedirectFromSearch,
   savePendingRedirect,
 } from "./redirect";
+import {
+  clearLogoutAllNotice,
+  readLogoutAllNotice,
+} from "./notice";
 
 interface AuthFormProps {
   mode: "login" | "signup";
@@ -22,13 +26,24 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSignup = mode === "signup";
   const redirectPath = getRedirectFromSearch(location.search);
 
   useEffect(() => {
     setError("");
-  }, [mode]);
+    if (isSignup) {
+      setNotice("");
+      return;
+    }
+
+    const savedNotice = readLogoutAllNotice();
+    if (savedNotice) {
+      setNotice(savedNotice);
+      clearLogoutAllNotice();
+    }
+  }, [isSignup, mode]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -87,6 +102,12 @@ export function AuthForm({ mode }: AuthFormProps) {
           </motion.h2>
         </AnimatePresence>
       </motion.header>
+
+      {notice && !isSignup && (
+        <p className="form-notice" role="status">
+          {notice}
+        </p>
+      )}
 
       <div className={isSignup ? "form-row" : "form-row is-login"}>
         <label>

@@ -4,7 +4,8 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { getRedirectFromSearch } from "../features/auth/redirect";
 import { useAuth } from "./AuthProvider";
 
-const LOADING_TEXT = "Get Over the World 🌐";
+const LOGIN_LOADING_TEXT = "Get Over the World 🌐";
+const SESSION_LOADING_TEXT = "$ session --restore";
 const TYPING_INTERVAL_MS = 65;
 const COMPLETION_DELAY_MS = 320;
 
@@ -16,14 +17,15 @@ interface LoadingScreenProps {
 export function LoadingScreen({ overlay = false, onComplete }: LoadingScreenProps) {
   const prefersReducedMotion = useReducedMotion();
   const [displayedText, setDisplayedText] = useState("");
+  const loadingText = overlay ? LOGIN_LOADING_TEXT : SESSION_LOADING_TEXT;
 
   useEffect(() => {
-    const characters = Array.from(LOADING_TEXT);
+    const characters = Array.from(loadingText);
     let characterIndex = 0;
     let completionTimeoutId: number | undefined;
 
-    if (prefersReducedMotion) {
-      setDisplayedText(LOADING_TEXT);
+    if (!overlay || prefersReducedMotion) {
+      setDisplayedText(loadingText);
       if (onComplete) {
         completionTimeoutId = window.setTimeout(onComplete, COMPLETION_DELAY_MS);
       }
@@ -54,12 +56,12 @@ export function LoadingScreen({ overlay = false, onComplete }: LoadingScreenProp
         window.clearTimeout(completionTimeoutId);
       }
     };
-  }, [onComplete, prefersReducedMotion]);
+  }, [loadingText, onComplete, overlay, prefersReducedMotion]);
 
   return (
     <motion.div
       className={overlay ? "loading-screen is-overlay" : "loading-screen"}
-      aria-label={LOADING_TEXT}
+      aria-label={loadingText}
       aria-live="polite"
       role="status"
       initial={false}

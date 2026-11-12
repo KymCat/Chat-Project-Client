@@ -10,6 +10,12 @@ import {
 import { useLocation } from "react-router-dom";
 import { authApi, type LoginRequest, type SignupRequest } from "../features/auth/api";
 import {
+  clearLogoutAllNotice,
+  saveAccountWithdrawnNotice,
+  saveLogoutAllNotice,
+} from "../features/auth/notice";
+import { memberApi } from "../features/member/api";
+import {
   refreshAccessToken,
   setAccessToken as saveAccessToken,
 } from "../shared/api/httpClient";
@@ -23,6 +29,8 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   logoutAllSessions: (reauthenticationToken: string) => Promise<void>;
   completeSocialLogoutAll: (code: string) => Promise<void>;
+  withdrawAccount: (reauthenticationToken: string) => Promise<void>;
+  completeSocialWithdrawal: (code: string) => Promise<void>;
   forceLogout: () => void;
   refreshSession: () => Promise<void>;
   completeOAuthLogin: (code: string) => Promise<void>;
@@ -89,17 +97,55 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
       },
       logoutAllSessions: async (reauthenticationToken) => {
-        await authApi.logoutAllSessions(reauthenticationToken);
+        saveLogoutAllNotice();
+        try {
+          await authApi.logoutAllSessions(reauthenticationToken);
+        } catch (error) {
+          clearLogoutAllNotice();
+          throw error;
+        }
         clearAuthentication();
       },
       completeSocialLogoutAll: async (code) => {
         await refreshAccessToken();
         const reauthenticationToken =
           await authApi.exchangeSocialReauthenticationCode(code);
-        await authApi.logoutAllSessions(reauthenticationToken);
+        saveLogoutAllNotice();
+        try {
+          await authApi.logoutAllSessions(reauthenticationToken);
+        } catch (error) {
+          clearLogoutAllNotice();
+          throw error;
+        }
         clearAuthentication();
       },
-      forceLogout: clearAuthentication,
+      withdrawAccount: async (reauthenticationToken) => {
+        saveAccountWithdrawnNotice();
+        try {
+          await memberApi.withdrawAccount(reauthenticationToken);
+        } catch (error) {
+          clearLogoutAllNotice();
+          throw error;
+        }
+        clearAuthentication();
+      },
+      completeSocialWithdrawal: async (code) => {
+        await refreshAccessToken();
+        const reauthenticationToken =
+          await authApi.exchangeSocialReauthenticationCode(code);
+        saveAccountWithdrawnNotice();
+        try {
+          await memberApi.withdrawAccount(reauthenticationToken);
+        } catch (error) {
+          clearLogoutAllNotice();
+          throw error;
+        }
+        clearAuthentication();
+      },
+      forceLogout: () => {
+        saveLogoutAllNotice();
+        clearAuthentication();
+      },
       refreshSession: async () => {
         const token = await refreshAccessToken();
         setAccessToken(token);

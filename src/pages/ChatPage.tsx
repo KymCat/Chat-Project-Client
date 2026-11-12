@@ -11,15 +11,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Link } from "react-router-dom";
 import "../styles/chat.css";
 import { useAuth } from "../app/AuthProvider";
 import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
-import {
-  authApi,
-  type ReauthenticationMethodResponse,
-} from "../features/auth/api";
 import { AttachmentMessageContent } from "../features/chat/AttachmentMessageContent";
 import { ChatAvatar } from "../features/chat/ChatAvatar";
 import { MessageComposer } from "../features/chat/MessageComposer";
@@ -49,9 +45,9 @@ import {
   type MemberPublicProfileResponse,
   type MemberStatus,
 } from "../features/member/api";
-import { API_BASE_URL } from "../shared/config/env";
 import { readAccessToken } from "../shared/auth/token";
 import { ApiError } from "../shared/api/httpClient";
+import { TerminalModalTransition } from "../shared/ui/TerminalModalTransition";
 
 interface MessagePageState {
   initialized: boolean;
@@ -292,7 +288,6 @@ export function ChatPage() {
     accessToken,
     forceLogout,
     logout,
-    logoutAllSessions,
   } = useAuth();
   const prefersReducedMotion = useReducedMotion();
   const [rooms, setRooms] = useState<ChatRoomResponse[]>([]);
@@ -364,12 +359,6 @@ export function ChatPage() {
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [isSavingNickname, setIsSavingNickname] = useState(false);
   const [nicknameError, setNicknameError] = useState("");
-  const [isLogoutAllModalOpen, setIsLogoutAllModalOpen] = useState(false);
-  const [reauthenticationMethod, setReauthenticationMethod] =
-    useState<ReauthenticationMethodResponse | null>(null);
-  const [logoutAllPassword, setLogoutAllPassword] = useState("");
-  const [logoutAllError, setLogoutAllError] = useState("");
-  const [isPreparingLogoutAll, setIsPreparingLogoutAll] = useState(false);
   const [isEditingStatusMessage, setIsEditingStatusMessage] = useState(false);
   const [statusMessageDraft, setStatusMessageDraft] = useState("");
   const [isSavingStatusMessage, setIsSavingStatusMessage] = useState(false);
@@ -487,10 +476,6 @@ export function ChatPage() {
   }, [availableRooms, roomSearchQuery]);
   const totalUnreadCount = useMemo(
     () => rooms.reduce((total, room) => total + room.unreadCount, 0),
-    [rooms],
-  );
-  const roomSubscriptionKey = useMemo(
-    () => rooms.map((room) => room.roomId).join(","),
     [rooms],
   );
   const activeFriendPanelError = friendPanelTab === "accepted"
@@ -1224,13 +1209,6 @@ export function ChatPage() {
     return () => window.clearTimeout(timeoutId);
   }, [roomEventToast]);
 
-  useEffect(() => {
-    const roomIds = roomSubscriptionKey
-      ? roomSubscriptionKey.split(",").map(Number)
-      : [];
-    chatRef.current?.syncSubscriptions(roomIds);
-  }, [roomSubscriptionKey]);
-
   useLayoutEffect(() => {
     const messageId = pendingSearchScrollMessageIdRef.current;
     if (messageId === null) return;
@@ -1770,89 +1748,6 @@ export function ChatPage() {
   const handleProfileLogout = async () => {
     setIsProfileModalOpen(false);
     await handleLogout();
-  };
-
-  const handleOpenLogoutAll = async () => {
-    if (isPreparingLogoutAll) return;
-
-    setIsProfileModalOpen(false);
-    setIsLogoutAllModalOpen(true);
-    setReauthenticationMethod(null);
-    setLogoutAllPassword("");
-    setLogoutAllError("");
-    setIsPreparingLogoutAll(true);
-
-    try {
-      const method = await authApi.getReauthenticationMethod();
-      setReauthenticationMethod(method);
-    } catch (requestError) {
-      setLogoutAllError(
-        requestError instanceof Error
-          ? requestError.message
-          : "재인증 방법을 확인하지 못했습니다.",
-      );
-    } finally {
-      setIsPreparingLogoutAll(false);
-    }
-  };
-
-  const handleCloseLogoutAll = () => {
-    if (isPreparingLogoutAll) return;
-    setIsLogoutAllModalOpen(false);
-    setReauthenticationMethod(null);
-    setLogoutAllPassword("");
-    setLogoutAllError("");
-  };
-
-  const handlePasswordLogoutAll = async () => {
-    if (isPreparingLogoutAll || !logoutAllPassword) return;
-
-    setIsPreparingLogoutAll(true);
-    setLogoutAllError("");
-
-    try {
-      const reauthenticationToken =
-        await authApi.reauthenticateWithPassword({
-          password: logoutAllPassword,
-          purpose: "LOGOUT_ALL",
-        });
-      await logoutAllSessions(reauthenticationToken);
-    } catch (requestError) {
-      setLogoutAllError(
-        requestError instanceof Error
-          ? requestError.message
-          : "모든 기기에서 로그아웃하지 못했습니다.",
-      );
-      setIsPreparingLogoutAll(false);
-    }
-  };
-
-  const handleSocialLogoutAll = async () => {
-    if (
-      isPreparingLogoutAll
-      || reauthenticationMethod?.type !== "SOCIAL"
-      || !reauthenticationMethod.provider
-    ) {
-      return;
-    }
-
-    setIsPreparingLogoutAll(true);
-    setLogoutAllError("");
-
-    try {
-      await authApi.startSocialReauthentication({
-        provider: reauthenticationMethod.provider,
-        purpose: "LOGOUT_ALL",
-      });
-      window.location.assign(`${API_BASE_URL}/oauth2/authorization/google`);
-    } catch (requestError) {
-      setLogoutAllError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Google 재인증을 시작하지 못했습니다.",
-      );
-      setIsPreparingLogoutAll(false);
-    }
   };
 
   const handleOpenOwnProfile = () => {
@@ -3040,8 +2935,17 @@ export function ChatPage() {
           </button>
         </nav>
 
+        <AnimatePresence initial={false} mode="wait">
         {activeGalleryTab === "joined" && (
-          <section className="joined-room-gallery" aria-label="참여 중인 채팅방">
+          <motion.section
+            key="joined"
+            className="joined-room-gallery"
+            aria-label="참여 중인 채팅방"
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 2 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0, y: -2 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
+          >
             <TerminalTypedCommand command="rooms --joined" />
             {isLoadingRooms && (
               <p className="room-list-status">채팅방을 불러오는 중...</p>
@@ -3153,11 +3057,19 @@ export function ChatPage() {
                 )}
               </nav>
             )}
-          </section>
+          </motion.section>
         )}
 
         {activeGalleryTab === "available" && (
-          <section className="available-room-section" aria-label="참여 가능한 채팅방">
+          <motion.section
+            key="available"
+            className="available-room-section"
+            aria-label="참여 가능한 채팅방"
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 2 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0, y: -2 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
+          >
             <TerminalTypedCommand command="rooms --discover" />
             <label className="terminal-search-command" htmlFor="room-search">
               <span>$</span> scan --name
@@ -3224,11 +3136,19 @@ export function ChatPage() {
               </span>
             </motion.button>
           ))}
-          </section>
+          </motion.section>
         )}
 
         {activeGalleryTab === "friends" && (
-          <section className="friends-section" aria-label="친구">
+          <motion.section
+            key="friends"
+            className="friends-section"
+            aria-label="친구"
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 2 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0, y: -2 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
+          >
             <TerminalTypedCommand command="friends --list" />
             <nav className="friend-panel-tabs" aria-label="친구 목록 구분">
               <button
@@ -3451,8 +3371,9 @@ export function ChatPage() {
                 )}
               </div>
             )}
-          </section>
+          </motion.section>
         )}
+        </AnimatePresence>
 
       </aside>
 
@@ -4241,12 +4162,12 @@ export function ChatPage() {
         </nav>
       )}
 
-      {pendingAttachment && (
-        <div
-          className="attachment-preview-modal"
-          role="presentation"
-          onClick={handleCloseAttachmentConfirmation}
-        >
+      <TerminalModalTransition
+        visible={Boolean(pendingAttachment)}
+        className="attachment-preview-modal"
+        onClick={handleCloseAttachmentConfirmation}
+      >
+        {pendingAttachment && (
           <section
             className="attachment-preview-dialog attachment-confirm-dialog"
             role="dialog"
@@ -4349,11 +4270,14 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {isCreateRoomModalOpen && (
-        <div className="create-room-modal" role="presentation">
+      <TerminalModalTransition
+        visible={isCreateRoomModalOpen}
+        className="create-room-modal"
+      >
+        {isCreateRoomModalOpen && (
           <section
             className="create-room-dialog"
             role="dialog"
@@ -4420,11 +4344,14 @@ export function ChatPage() {
               </footer>
             </form>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {renameTargetRoom && (
-        <div className="create-room-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(renameTargetRoom)}
+        className="create-room-modal"
+      >
+        {renameTargetRoom && (
           <section
             className="create-room-dialog"
             role="dialog"
@@ -4491,11 +4418,14 @@ export function ChatPage() {
               </footer>
             </form>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {deleteTargetRoom && (
-        <div className="leave-room-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(deleteTargetRoom)}
+        className="leave-room-modal"
+      >
+        {deleteTargetRoom && (
           <section
             className="leave-room-dialog"
             role="dialog"
@@ -4535,11 +4465,14 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {deletedRoomNotice && (
-        <div className="leave-room-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(deletedRoomNotice)}
+        className="leave-room-modal"
+      >
+        {deletedRoomNotice && (
           <section
             className="leave-room-dialog deleted-room-dialog"
             role="dialog"
@@ -4565,8 +4498,8 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
       {roomEventToast && (
         <div className="room-event-toast" role="status">
@@ -4574,8 +4507,11 @@ export function ChatPage() {
         </div>
       )}
 
-      {inviteTargetRoom && (
-        <div className="invite-link-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(inviteTargetRoom)}
+        className="invite-link-modal"
+      >
+        {inviteTargetRoom && (
           <section
             className="invite-link-dialog"
             role="dialog"
@@ -4696,11 +4632,14 @@ export function ChatPage() {
               </div>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {viewedMemberProfile && (
-        <div className="profile-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(viewedMemberProfile)}
+        className="profile-modal"
+      >
+        {viewedMemberProfile && (
           <section
             className="profile-dialog"
             role="dialog"
@@ -4861,11 +4800,14 @@ export function ChatPage() {
               </div>
             </div>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {directChatTarget && (
-        <div className="profile-image-confirm-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(directChatTarget)}
+        className="profile-image-confirm-modal"
+      >
+        {directChatTarget && (
           <section
             className="profile-image-confirm-dialog direct-chat-dialog"
             role="dialog"
@@ -4928,11 +4870,14 @@ export function ChatPage() {
               </footer>
             </form>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {friendRemovalTarget && (
-        <div className="profile-image-confirm-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(friendRemovalTarget)}
+        className="profile-image-confirm-modal"
+      >
+        {friendRemovalTarget && (
           <section
             className="profile-image-confirm-dialog friend-removal-dialog"
             role="dialog"
@@ -4974,11 +4919,14 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {isProfileModalOpen && (
-        <div className="profile-modal" role="presentation">
+      <TerminalModalTransition
+        visible={isProfileModalOpen}
+        className="profile-modal"
+      >
+        {isProfileModalOpen && (
           <section
             className="profile-dialog"
             role="dialog"
@@ -5179,13 +5127,12 @@ export function ChatPage() {
             </Link>
 
             <footer className="profile-dialog-footer">
-              <button
-                className="profile-logout-all-button"
-                type="button"
-                onClick={() => void handleOpenLogoutAll()}
+              <Link
+                className="profile-account-settings-link"
+                to="/settings/account"
               >
-                모든 기기 로그아웃
-              </button>
+                계정 관리
+              </Link>
               <button
                 className="profile-logout-button"
                 type="button"
@@ -5195,92 +5142,14 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {isLogoutAllModalOpen && (
-        <div className="profile-image-confirm-modal" role="presentation">
-          <section
-            className="profile-image-confirm-dialog logout-all-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="logout-all-title"
-          >
-            <p className="eyebrow">$ session --logout-all</p>
-            <h2 id="logout-all-title">모든 기기에서 로그아웃</h2>
-            <p className="profile-image-confirm-description">
-              현재 기기를 포함한 모든 로그인 Session이 종료됩니다.
-            </p>
-
-            {isPreparingLogoutAll && !reauthenticationMethod ? (
-              <p className="logout-all-status">재인증 방법을 확인하고 있습니다.</p>
-            ) : reauthenticationMethod?.type === "PASSWORD" ? (
-              <label className="logout-all-password-field">
-                <span>현재 비밀번호</span>
-                <input
-                  type="password"
-                  value={logoutAllPassword}
-                  minLength={8}
-                  maxLength={30}
-                  autoComplete="current-password"
-                  onChange={(event) => setLogoutAllPassword(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void handlePasswordLogoutAll();
-                    }
-                  }}
-                  disabled={isPreparingLogoutAll}
-                  autoFocus
-                />
-              </label>
-            ) : reauthenticationMethod?.type === "SOCIAL" ? (
-              <p className="logout-all-status">
-                연결된 Google 계정으로 본인 확인 후 로그아웃합니다.
-              </p>
-            ) : null}
-
-            {logoutAllError && (
-              <p className="profile-image-error" role="alert">
-                {logoutAllError}
-              </p>
-            )}
-
-            <footer>
-              <button
-                type="button"
-                onClick={handleCloseLogoutAll}
-                disabled={isPreparingLogoutAll}
-              >
-                취소
-              </button>
-              {reauthenticationMethod?.type === "PASSWORD" && (
-                <button
-                  className="confirm-logout-all-button"
-                  type="button"
-                  onClick={() => void handlePasswordLogoutAll()}
-                  disabled={isPreparingLogoutAll || !logoutAllPassword}
-                >
-                  {isPreparingLogoutAll ? "처리 중..." : "모든 기기 로그아웃"}
-                </button>
-              )}
-              {reauthenticationMethod?.type === "SOCIAL" && (
-                <button
-                  className="confirm-logout-all-button"
-                  type="button"
-                  onClick={() => void handleSocialLogoutAll()}
-                  disabled={isPreparingLogoutAll}
-                >
-                  {isPreparingLogoutAll ? "이동 중..." : "Google로 본인 확인"}
-                </button>
-              )}
-            </footer>
-          </section>
-        </div>
-      )}
-
-      {isProfileImageSourceOpen && (
-        <div className="profile-image-confirm-modal" role="presentation">
+      <TerminalModalTransition
+        visible={isProfileImageSourceOpen}
+        className="profile-image-confirm-modal"
+      >
+        {isProfileImageSourceOpen && (
           <section
             className="profile-image-confirm-dialog"
             role="dialog"
@@ -5325,11 +5194,14 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {profileImageAction && (
-        <div className="profile-image-confirm-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(profileImageAction)}
+        className="profile-image-confirm-modal"
+      >
+        {profileImageAction && (
           <section
             className="profile-image-confirm-dialog"
             role="dialog"
@@ -5406,11 +5278,14 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {joinTargetRoom && (
-        <div className="join-room-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(joinTargetRoom)}
+        className="join-room-modal"
+      >
+        {joinTargetRoom && (
           <section
             className="join-room-dialog"
             role="dialog"
@@ -5449,11 +5324,14 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {leaveTargetRoom && (
-        <div className="leave-room-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(leaveTargetRoom)}
+        className="leave-room-modal"
+      >
+        {leaveTargetRoom && (
           <section
             className="leave-room-dialog"
             role="dialog"
@@ -5495,11 +5373,14 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
 
-      {ownerTransferTarget && activeRoom && (
-        <div className="owner-transfer-modal" role="presentation">
+      <TerminalModalTransition
+        visible={Boolean(ownerTransferTarget && activeRoom)}
+        className="owner-transfer-modal"
+      >
+        {ownerTransferTarget && activeRoom && (
           <section
             className="owner-transfer-dialog"
             role="dialog"
@@ -5548,8 +5429,8 @@ export function ChatPage() {
               </button>
             </footer>
           </section>
-        </div>
-      )}
+        )}
+      </TerminalModalTransition>
     </main>
   );
 }
