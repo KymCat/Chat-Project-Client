@@ -12,13 +12,16 @@ import {
   useState,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import "../styles/chat.css";
 import { useAuth } from "../app/AuthProvider";
+import { useAdminAccess } from "../features/admin/AdminAccessProvider";
+import { ADMIN_REPORTS_PATH } from "../features/admin/routes";
 import { EmailVerificationPanel } from "../features/auth/EmailVerificationPanel";
 import { AttachmentMessageContent } from "../features/chat/AttachmentMessageContent";
 import { ChatAvatar } from "../features/chat/ChatAvatar";
 import { MessageComposer } from "../features/chat/MessageComposer";
+import { MessageReportModal } from "../features/chat/MessageReportModal";
 import {
   chatRoomApi,
   type ChatErrorEvent,
@@ -72,6 +75,10 @@ type FriendPanelTab = "accepted" | "received" | "sent" | "blocked";
 interface DeletedRoomNotice {
   roomId: number;
   roomName: string;
+}
+
+interface ChatNavigationState {
+  notice?: string;
 }
 
 interface PendingAttachment {
@@ -276,6 +283,13 @@ function isSameMessageDate(left: string, right: string) {
     && leftDate.getDate() === rightDate.getDate();
 }
 
+function canReportMessage(message: ChatMessage, currentMemberId: number | null) {
+  return message.senderId !== null
+    && message.senderId !== currentMemberId
+    && message.type !== "SYSTEM"
+    && !message.deleted;
+}
+
 function mergeMessages(
   currentMessages: ChatMessage[],
   receivedMessages: ChatMessage[],
@@ -297,6 +311,9 @@ export function ChatPage() {
     forceLogout,
     logout,
   } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { isAdmin } = useAdminAccess();
   const prefersReducedMotion = useReducedMotion();
   const [rooms, setRooms] = useState<ChatRoomResponse[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
@@ -357,6 +374,7 @@ export function ChatPage() {
   const [pendingAttachment, setPendingAttachment] =
     useState<PendingAttachment | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<number | null>(null);
+  const [reportTarget, setReportTarget] = useState<ChatMessage | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editingMessageContent, setEditingMessageContent] = useState("");
   const [isSavingMessageEdit, setIsSavingMessageEdit] = useState(false);
@@ -419,6 +437,7 @@ export function ChatPage() {
   const [deleteRoomError, setDeleteRoomError] = useState("");
   const [deletedRoomNotice, setDeletedRoomNotice] = useState<DeletedRoomNotice | null>(null);
   const [roomEventToast, setRoomEventToast] = useState("");
+  const [navigationNotice, setNavigationNotice] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
   const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
@@ -1337,6 +1356,18 @@ export function ChatPage() {
     const timeoutId = window.setTimeout(() => setRoomEventToast(""), 5000);
     return () => window.clearTimeout(timeoutId);
   }, [roomEventToast]);
+
+  useEffect(() => {
+    const navigationState =
+      location.state as ChatNavigationState | null;
+    if (!navigationState?.notice) return;
+
+    setNavigationNotice(navigationState.notice);
+    navigate(
+      `${location.pathname}${location.search}`,
+      { replace: true, state: null },
+    );
+  }, [location.pathname, location.search, location.state, navigate]);
 
   useLayoutEffect(() => {
     const messageId = pendingSearchScrollMessageIdRef.current;
@@ -4239,6 +4270,28 @@ export function ChatPage() {
                               </button>
                             </span>
                           )}
+                          {canReportMessage(item, memberId) && (
+                            <span className="message-actions">
+                              <button
+                                className="message-report-button"
+                                type="button"
+                                onClick={() => setReportTarget(item)}
+                                disabled={reportTarget !== null}
+                                aria-label="메시지 신고"
+                                title="메시지 신고"
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                  <path
+                                    d="M5 21V4m0 1h11l-2 4 2 4H5"
+                                    stroke="currentColor"
+                                    strokeWidth="1.7"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </button>
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -4308,6 +4361,28 @@ export function ChatPage() {
                               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                 <path
                                   d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"
+                                  stroke="currentColor"
+                                  strokeWidth="1.7"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </button>
+                          </span>
+                        )}
+                        {canReportMessage(item, memberId) && (
+                          <span className="message-actions">
+                            <button
+                              className="message-report-button"
+                              type="button"
+                              onClick={() => setReportTarget(item)}
+                              disabled={reportTarget !== null}
+                              aria-label="첨부파일 메시지 신고"
+                              title="첨부파일 메시지 신고"
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path
+                                  d="M5 21V4m0 1h11l-2 4 2 4H5"
                                   stroke="currentColor"
                                   strokeWidth="1.7"
                                   strokeLinecap="round"
@@ -4409,6 +4484,42 @@ export function ChatPage() {
           })}
         </nav>
       )}
+
+      <MessageReportModal
+        target={reportTarget}
+        onClose={() => setReportTarget(null)}
+        onSubmitted={() => {
+          setReportTarget(null);
+          setRoomEventToast("메시지 신고가 접수되었습니다.");
+        }}
+      />
+
+      <TerminalModalTransition
+        visible={Boolean(navigationNotice)}
+        className="navigation-notice-modal"
+      >
+        {navigationNotice && (
+          <section
+            className="navigation-notice-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="navigation-notice-title"
+          >
+            <p className="eyebrow">$ route --access-denied</p>
+            <h2 id="navigation-notice-title">접근할 수 없습니다.</h2>
+            <p>{navigationNotice}</p>
+            <footer>
+              <button
+                type="button"
+                onClick={() => setNavigationNotice("")}
+                autoFocus
+              >
+                확인
+              </button>
+            </footer>
+          </section>
+        )}
+      </TerminalModalTransition>
 
       <TerminalModalTransition
         visible={Boolean(pendingAttachment)}
@@ -5411,6 +5522,14 @@ export function ChatPage() {
             </Link>
 
             <footer className="profile-dialog-footer">
+              {isAdmin && (
+                <Link
+                  className="profile-account-settings-link is-admin"
+                  to={ADMIN_REPORTS_PATH}
+                >
+                  신고 관리
+                </Link>
+              )}
               <Link
                 className="profile-account-settings-link"
                 to="/settings/account"

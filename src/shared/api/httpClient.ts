@@ -1,5 +1,7 @@
 import { API_BASE_URL } from "../config/env";
 
+const REST_API_BASE_URL = `${API_BASE_URL}/api`;
+
 interface ApiResponse<T> {
   success: boolean;
   data: T;
@@ -73,7 +75,7 @@ async function sendRequest(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${REST_API_BASE_URL}${path}`, {
     ...options,
     headers,
     credentials: "include",
@@ -87,7 +89,7 @@ async function sendRequest(
     const token = await refreshAccessToken();
     headers.set("Authorization", `Bearer ${token}`);
 
-    const retriedResponse = await fetch(`${API_BASE_URL}${path}`, {
+    const retriedResponse = await fetch(`${REST_API_BASE_URL}${path}`, {
       ...options,
       headers,
       credentials: "include",

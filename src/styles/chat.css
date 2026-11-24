@@ -1385,7 +1385,8 @@
 }
 
 .message-edit-button,
-.message-delete-button {
+.message-delete-button,
+.message-report-button {
   display: inline-grid;
   width: 26px;
   height: 26px;
@@ -1417,25 +1418,30 @@
 
 .message:hover .message-edit-button,
 .message:hover .message-delete-button,
+.message:hover .message-report-button,
 .message-edit-button:focus-visible,
-.message-delete-button:focus-visible {
+.message-delete-button:focus-visible,
+.message-report-button:focus-visible {
   opacity: 1;
 }
 
 .message-edit-button:hover,
-.message-delete-button:hover {
+.message-delete-button:hover,
+.message-report-button:hover {
   color: #f0f0f2;
   background: rgba(255, 255, 255, 0.08);
 }
 
 .message-edit-button:disabled,
-.message-delete-button:disabled {
+.message-delete-button:disabled,
+.message-report-button:disabled {
   cursor: wait;
   opacity: 0.45;
 }
 
 .message-edit-button svg,
-.message-delete-button svg {
+.message-delete-button svg,
+.message-report-button svg {
   width: 15px;
   height: 15px;
 }
@@ -8254,6 +8260,143 @@
   border-color: #5da874;
   color: #c7f7d3;
   background: #17201a;
+}
+
+.profile-dialog-footer .profile-account-settings-link.is-admin {
+  margin-right: 0;
+}
+
+.message-report-modal {
+  position: fixed;
+  z-index: 1100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.message-report-dialog {
+  width: min(520px, 100%);
+  padding: 24px;
+  border: 1px solid #35433a;
+  color: #d8e8dc;
+  background: #0a0e0c;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Noto Sans KR", monospace;
+}
+
+.message-report-dialog h2 {
+  margin: 0;
+}
+
+.message-report-description {
+  margin: 12px 0 18px;
+  color: #8f9e94;
+  line-height: 1.6;
+}
+
+.message-report-dialog label {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  color: #b8c8bd;
+}
+
+.message-report-dialog select,
+.message-report-dialog textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #35433a;
+  border-radius: 0;
+  color: #d8e8dc;
+  background: #070a08;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.message-report-dialog textarea {
+  resize: vertical;
+}
+
+.message-report-count {
+  justify-self: end;
+  color: #8f9e94;
+}
+
+.message-report-error {
+  color: #ff8ca6;
+}
+
+.message-report-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #263129;
+}
+
+.message-report-dialog footer button {
+  padding: 9px 14px;
+  border: 1px solid #4e6657;
+  color: #d8e8dc;
+  background: #111813;
+  font: inherit;
+  cursor: pointer;
+}
+
+.message-report-dialog footer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.navigation-notice-modal {
+  position: fixed;
+  z-index: 1300;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.76);
+  backdrop-filter: blur(4px);
+}
+
+.navigation-notice-dialog {
+  width: min(440px, 100%);
+  padding: 24px;
+  border: 1px solid #5d4638;
+  color: #d8e8dc;
+  background: #0a0e0c;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Noto Sans KR", monospace;
+}
+
+.navigation-notice-dialog h2 {
+  margin: 0;
+  color: #d8b66f;
+}
+
+.navigation-notice-dialog > p:not(.eyebrow) {
+  margin: 14px 0 0;
+  color: #b8c8bd;
+  line-height: 1.6;
+}
+
+.navigation-notice-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #263129;
+}
+
+.navigation-notice-dialog footer button {
+  padding: 9px 18px;
+  border: 1px solid #5da874;
+  color: #c7f7d3;
+  background: #111813;
+  font: inherit;
+  cursor: pointer;
 }
 
 .logout-all-status {

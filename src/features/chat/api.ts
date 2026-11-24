@@ -115,6 +115,17 @@ export interface ChatErrorEvent {
   message: string;
 }
 
+export type MessageReportReason =
+  | "ABUSE"
+  | "SPAM"
+  | "SEXUAL_CONTENT"
+  | "OTHER";
+
+export interface MessageReportRequest {
+  reason: MessageReportReason;
+  detail: string | null;
+}
+
 export interface CursorPageResponse<T> {
   content: T[];
   nextCursor: number | null;
@@ -198,6 +209,14 @@ export const chatRoomApi = {
     httpClient.patch<void>(`/chat-rooms/${roomId}/messages/${messageId}`, {
       content,
     }),
+  reportMessage: (
+    roomId: number,
+    messageId: number,
+    request: MessageReportRequest,
+  ) => httpClient.post<void>(
+    `/chat-rooms/${roomId}/messages/${messageId}/reports`,
+    request,
+  ),
   getMessages: (
     roomId: number,
     beforeMessageId: number | null = null,

@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-개발 서버는 `http://localhost:3000`에서 실행되며 `/auth`, `/member`, `/ws-stomp` 요청을
+개발 서버는 `http://localhost:3000`에서 실행되며 `/api`, `/oauth2`, `/ws-stomp` 요청을
 `http://localhost:8080`으로 proxy합니다.
 
 ## Production build

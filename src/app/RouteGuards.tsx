@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { getRedirectFromSearch } from "../features/auth/redirect";
+import { hasPostLogoutNotice } from "../features/auth/notice";
+import {
+  AdminAccessProvider,
+  useAdminAccess,
+} from "../features/admin/AdminAccessProvider";
 import { useAuth } from "./AuthProvider";
 
 const LOGIN_LOADING_TEXT = "Get Over the World 🌐";
@@ -91,7 +96,9 @@ export function ProtectedRoute() {
 
   if (isBootstrapping) return <LoadingScreen />;
   if (!accessToken) {
-    const requestedPath = `${location.pathname}${location.search}`;
+    const requestedPath = hasPostLogoutNotice()
+      ? "/chat"
+      : `${location.pathname}${location.search}`;
     return (
       <Navigate
         to={`/login?redirect=${encodeURIComponent(requestedPath)}`}
@@ -101,15 +108,40 @@ export function ProtectedRoute() {
   }
 
   return (
-    <>
+    <AdminAccessProvider accessToken={accessToken}>
       <Outlet />
       <AnimatePresence initial={false}>
         {isLoginTransitionPending && (
           <LoadingScreen overlay onComplete={completeLoginTransition} />
         )}
       </AnimatePresence>
-    </>
+    </AdminAccessProvider>
   );
+}
+
+export function AdminRoute() {
+  const { status, retry } = useAdminAccess();
+
+  if (status === "checking") return <LoadingScreen />;
+  if (status === "denied") {
+    return (
+      <Navigate
+        to="/chat"
+        replace
+        state={{ notice: "관리자 권한이 없습니다." }}
+      />
+    );
+  }
+  if (status === "error") {
+    return (
+      <main className="loading-screen admin-access-error" role="alert">
+        <p>관리자 권한을 확인하지 못했습니다.</p>
+        <button type="button" onClick={retry}>다시 시도</button>
+      </main>
+    );
+  }
+
+  return <Outlet />;
 }
 
 export function PublicOnlyRoute() {

@@ -38,6 +38,10 @@ export function readLogoutAllNotice() {
   return window.sessionStorage.getItem(LOGOUT_ALL_NOTICE_KEY);
 }
 
+export function hasPostLogoutNotice() {
+  return window.sessionStorage.getItem(LOGOUT_ALL_NOTICE_KEY) !== null;
+}
+
 export function clearLogoutAllNotice() {
   window.sessionStorage.removeItem(LOGOUT_ALL_NOTICE_KEY);
 }
