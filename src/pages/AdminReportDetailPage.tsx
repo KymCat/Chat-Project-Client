@@ -201,7 +201,12 @@ export function AdminReportDetailPage() {
         </article>
       )}
 
-      <TerminalModalTransition visible={pendingAction !== null} className="admin-confirm-modal">
+      <TerminalModalTransition
+        visible={pendingAction !== null}
+        className="admin-confirm-modal"
+        onRequestClose={closeAction}
+        dismissible={!isSubmitting}
+      >
         {pendingAction && (
           <section className="admin-confirm-dialog" role="dialog" aria-modal="true">
             <p className="admin-command">

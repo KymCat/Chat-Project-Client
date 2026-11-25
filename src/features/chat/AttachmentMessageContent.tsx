@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { TerminalModalTransition } from "../../shared/ui/TerminalModalTransition";
 import { chatRoomApi, type ChatMessage } from "./api";
 
 interface AttachmentMessageContentProps {
@@ -88,11 +89,13 @@ export const AttachmentMessageContent = memo(function AttachmentMessageContent({
     if (!isPreviewOpen) return;
 
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsPreviewOpen(false);
+      if (event.key === "Escape" && !isDownloading) {
+        setIsPreviewOpen(false);
+      }
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [isPreviewOpen]);
+  }, [isDownloading, isPreviewOpen]);
 
   if (!attachment) {
     return <p className="deleted-message">삭제된 메시지입니다.</p>;
@@ -144,24 +147,25 @@ export const AttachmentMessageContent = memo(function AttachmentMessageContent({
           <span>{attachment.originalName}</span>
         </div>
 
-        {isPreviewOpen && imageUrl && (
-          <div
-            className="attachment-preview-modal"
-            role="presentation"
-            onClick={() => setIsPreviewOpen(false)}
-          >
+        <TerminalModalTransition
+          visible={isPreviewOpen && Boolean(imageUrl)}
+          className="attachment-preview-modal"
+          onRequestClose={() => setIsPreviewOpen(false)}
+          dismissible={!isDownloading}
+        >
+          {isPreviewOpen && imageUrl && (
             <section
               className="attachment-preview-dialog"
               role="dialog"
               aria-modal="true"
               aria-label={`${attachment.originalName} 이미지 미리보기`}
-              onClick={(event) => event.stopPropagation()}
             >
               <header>
                 <strong>{attachment.originalName}</strong>
                 <button
                   type="button"
                   onClick={() => setIsPreviewOpen(false)}
+                  disabled={isDownloading}
                   aria-label="이미지 미리보기 닫기"
                 >
                   ×
@@ -182,8 +186,8 @@ export const AttachmentMessageContent = memo(function AttachmentMessageContent({
               </footer>
               {loadError && <p role="alert">{loadError}</p>}
             </section>
-          </div>
-        )}
+          )}
+        </TerminalModalTransition>
       </>
     );
   }

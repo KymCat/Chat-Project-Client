@@ -305,6 +305,8 @@ export function AccountSettingsPage() {
       <TerminalModalTransition
         visible={Boolean(activeAction && activeContent)}
         className="profile-image-confirm-modal"
+        onRequestClose={handleCloseAction}
+        dismissible={!isSubmitting}
       >
         {activeAction && activeContent && (
           <section

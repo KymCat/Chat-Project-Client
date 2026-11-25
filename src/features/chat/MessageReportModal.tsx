@@ -61,7 +61,12 @@ export function MessageReportModal({
   };
 
   return (
-    <TerminalModalTransition visible={target !== null} className="message-report-modal">
+    <TerminalModalTransition
+      visible={target !== null}
+      className="message-report-modal"
+      onRequestClose={close}
+      dismissible={!isSubmitting}
+    >
       {target && (
         <form
           className="message-report-dialog"

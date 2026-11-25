@@ -1730,13 +1730,18 @@
 }
 
 .create-room-dialog footer button {
+  display: inline-flex;
   width: auto;
   height: 42px;
   margin: 0;
   padding: 0 17px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   border-radius: 10px;
   font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .create-room-dialog .cancel-create-room-button {
@@ -8119,19 +8124,25 @@
   flex: 0 0 auto;
   min-height: 30px;
   margin-left: auto;
-  padding: 0 9px;
-  border: 1px solid #35433a;
-  border-radius: 3px;
-  color: #a9d8b5;
-  background: #111715;
+  padding: 0 4px;
+  border: 0;
+  color: #76d993;
+  background: transparent;
   font: 600 var(--ui-text-xs)/1 var(--font-ui);
 }
 
 .profile-nickname-edit-button:hover:not(:disabled),
 .profile-status-message-heading > button:hover:not(:disabled) {
-  border-color: #5da874;
   color: #d8f7df;
-  background: #17201a;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.profile-nickname-edit-button:focus-visible,
+.profile-status-message-heading > button:focus-visible {
+  outline: 1px solid #76d993;
+  outline-offset: 3px;
 }
 
 .profile-nickname-form {
@@ -8221,6 +8232,9 @@
 
 .profile-privacy-link {
   min-height: 34px;
+  padding-inline: 4px;
+  border: 0;
+  background: transparent;
   font: 500 var(--ui-text-xs)/1 var(--font-ui);
 }
 
@@ -8243,12 +8257,11 @@
   display: inline-flex;
   min-height: 34px;
   margin-right: auto;
-  padding: 0 12px;
+  padding: 0 4px;
   align-items: center;
-  border: 1px solid #35433a;
-  border-radius: 3px;
+  border: 0;
   color: #a9d8b5;
-  background: #111715;
+  background: transparent;
   font-family: var(--font-ui);
   font-size: var(--ui-text-xs);
   font-weight: 600;
@@ -8257,9 +8270,24 @@
 
 .profile-dialog-footer .profile-account-settings-link:hover,
 .profile-dialog-footer .profile-account-settings-link:focus-visible {
-  border-color: #5da874;
   color: #c7f7d3;
-  background: #17201a;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.profile-privacy-link:hover,
+.profile-privacy-link:focus-visible {
+  border-color: transparent;
+  color: #c7f7d3;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.profile-dialog-footer .profile-account-settings-link:focus-visible {
+  outline: 1px solid #76d993;
+  outline-offset: 3px;
 }
 
 .profile-dialog-footer .profile-account-settings-link.is-admin {

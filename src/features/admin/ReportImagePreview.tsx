@@ -108,7 +108,7 @@ export function ReportImagePreview({
       <TerminalModalTransition
         visible={isPreviewOpen && Boolean(imageUrl)}
         className="admin-image-preview-modal"
-        onClick={() => setIsPreviewOpen(false)}
+        onRequestClose={() => setIsPreviewOpen(false)}
       >
         <section
           className="admin-image-preview-dialog"

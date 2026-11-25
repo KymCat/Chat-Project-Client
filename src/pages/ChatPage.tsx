@@ -72,6 +72,17 @@ interface PendingHistoryScroll {
 type ChatGalleryTab = "joined" | "available" | "friends";
 type FriendPanelTab = "accepted" | "received" | "sent" | "blocked";
 
+interface ChatNavigation {
+  tab: ChatGalleryTab;
+  friendTab: FriendPanelTab;
+  roomId: number | null;
+}
+
+interface OpenRoomOptions {
+  toggleIfActive?: boolean;
+  replaceModalHistory?: boolean;
+}
+
 interface DeletedRoomNotice {
   roomId: number;
   roomName: string;
@@ -261,10 +272,44 @@ function getProfileRelationLabel(
   }
 }
 
-function readInvitedRoomId() {
-  const value = new URLSearchParams(window.location.search).get("room");
+function readChatNavigation(search: string): ChatNavigation {
+  const searchParams = new URLSearchParams(search);
+  const tabValue = searchParams.get("tab");
+  const friendTabValue = searchParams.get("friendTab");
+  const value = searchParams.get("room");
   const roomId = value ? Number(value) : NaN;
-  return Number.isSafeInteger(roomId) && roomId > 0 ? roomId : null;
+  const validRoomId = Number.isSafeInteger(roomId) && roomId > 0
+    ? roomId
+    : null;
+  const tab: ChatGalleryTab = validRoomId !== null
+    ? "joined"
+    : tabValue === "available" || tabValue === "friends"
+      ? tabValue
+      : "joined";
+  const friendTab: FriendPanelTab = friendTabValue === "received"
+    || friendTabValue === "sent"
+    || friendTabValue === "blocked"
+    ? friendTabValue
+    : "accepted";
+
+  return { tab, friendTab, roomId: validRoomId };
+}
+
+function createChatPath(
+  tab: ChatGalleryTab,
+  friendTab: FriendPanelTab = "accepted",
+  roomId: number | null = null,
+) {
+  const searchParams = new URLSearchParams({ tab });
+
+  if (tab === "friends") {
+    searchParams.set("friendTab", friendTab);
+  }
+  if (roomId !== null) {
+    searchParams.set("room", String(roomId));
+  }
+
+  return `/chat?${searchParams.toString()}`;
 }
 
 function formatInviteExpiration(expiresAt: string) {
@@ -313,13 +358,17 @@ export function ChatPage() {
   } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const chatNavigation = useMemo(
+    () => readChatNavigation(location.search),
+    [location.search],
+  );
+  const activeGalleryTab = chatNavigation.tab;
+  const friendPanelTab = chatNavigation.friendTab;
   const { isAdmin } = useAdminAccess();
   const prefersReducedMotion = useReducedMotion();
   const [rooms, setRooms] = useState<ChatRoomResponse[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
   const [openRoomIds, setOpenRoomIds] = useState<number[]>([]);
-  const [activeGalleryTab, setActiveGalleryTab] = useState<ChatGalleryTab>("joined");
-  const [friendPanelTab, setFriendPanelTab] = useState<FriendPanelTab>("accepted");
   const [friends, setFriends] = useState<FriendListResponse[]>([]);
   const [sentFriendRequests, setSentFriendRequests] =
     useState<CursorPageResponse<FriendRequestResponse>>(emptyFriendRequestPage);
@@ -454,7 +503,7 @@ export function ChatPage() {
   const [isScrollToBottomVisible, setIsScrollToBottomVisible] = useState(false);
   const chatRef = useRef<ReturnType<typeof connectChat> | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement>(null);
-  const invitedRoomIdRef = useRef(readInvitedRoomId());
+  const initialRoomIdRef = useRef(chatNavigation.roomId);
   const loadingMessageRoomIdsRef = useRef(new Set<number>());
   const pendingHistoryScrollRef = useRef<PendingHistoryScroll | null>(null);
   const shouldScrollToBottomRef = useRef(true);
@@ -580,6 +629,31 @@ export function ChatPage() {
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
   }, [isChatOpen]);
+
+  useEffect(() => {
+    const requestedRoomId = chatNavigation.roomId;
+
+    if (
+      requestedRoomId === null
+      || !rooms.some((room) => room.roomId === requestedRoomId)
+    ) {
+      activeRoomIdRef.current = null;
+      isChatOpenRef.current = false;
+      setActiveRoomId(null);
+      setIsChatOpen(false);
+      setIsMemberListOpen(false);
+      setIsRoomMenuOpen(false);
+      return;
+    }
+
+    activeRoomIdRef.current = requestedRoomId;
+    isChatOpenRef.current = true;
+    setOpenRoomIds((current) => current.includes(requestedRoomId)
+      ? current
+      : [...current, requestedRoomId].slice(-3));
+    setActiveRoomId(requestedRoomId);
+    setIsChatOpen(true);
+  }, [chatNavigation.roomId, rooms]);
 
   useEffect(() => {
     setIsScrollToBottomVisible(false);
@@ -1121,21 +1195,9 @@ export function ChatPage() {
     void memberApi.getProfile().then(setMemberProfile).catch(() => {
       setMemberProfile(null);
     });
-    const invitedRoomId = invitedRoomIdRef.current;
-    void loadRooms(invitedRoomId ?? undefined).then((loadedRooms) => {
-      if (
-        invitedRoomId === null
-        || !loadedRooms?.some((room) => room.roomId === invitedRoomId)
-      ) {
-        return;
-      }
-
-      invitedRoomIdRef.current = null;
-      setOpenRoomIds((current) => current.includes(invitedRoomId)
-        ? current
-        : [...current, invitedRoomId].slice(-3));
-      setIsChatOpen(true);
-      window.history.replaceState({}, document.title, "/chat");
+    const initialRoomId = initialRoomIdRef.current;
+    void loadRooms(initialRoomId ?? undefined).then(() => {
+      initialRoomIdRef.current = null;
     });
     void loadAvailableRooms();
     void loadBlockedMembers();
@@ -1689,7 +1751,10 @@ export function ChatPage() {
         loadRooms(response.roomId),
         loadAvailableRooms(),
       ]);
-      handleOpenRoom(response.roomId);
+      handleOpenRoom(response.roomId, {
+        toggleIfActive: false,
+        replaceModalHistory: true,
+      });
       setIsCreateRoomModalOpen(false);
     } catch (createError) {
       setRoomCreationError(
@@ -1714,7 +1779,10 @@ export function ChatPage() {
         loadRooms(roomId),
         loadAvailableRooms(),
       ]);
-      handleOpenRoom(roomId);
+      handleOpenRoom(roomId, {
+        toggleIfActive: false,
+        replaceModalHistory: true,
+      });
       setJoinTargetRoom(null);
     } catch (joinError) {
       setJoinRoomError(
@@ -1858,6 +1926,7 @@ export function ChatPage() {
       setRoomMembers([]);
       setMemberListError("");
       setError("");
+      navigate(createChatPath("joined"), { replace: true });
     }
     setDeletedRoomNotice(null);
   };
@@ -1882,6 +1951,7 @@ export function ChatPage() {
         setIsRoomMenuOpen(false);
         setRoomMembers([]);
         setMemberListError("");
+        navigate(createChatPath("joined"), { replace: true });
       }
       setError("");
       setLeaveTargetRoom(null);
@@ -2829,24 +2899,32 @@ export function ChatPage() {
     isChatOpenRef.current = false;
     setActiveRoomId(null);
     setIsChatOpen(false);
-  }, []);
+    navigate(createChatPath("joined"), { replace: true });
+  }, [navigate]);
 
   const handleSelectGalleryTab = (tab: ChatGalleryTab) => {
-    if (isChatOpenRef.current) {
-      handleMinimizeRoom();
-    }
-
     setViewedMemberProfile(null);
     setFriendNotice("");
     setDirectChatError("");
-    setActiveGalleryTab(tab);
 
-    if (tab === "friends" && activeGalleryTab === "friends") {
+    if (
+      tab === "friends"
+      && activeGalleryTab === "friends"
+      && chatNavigation.roomId === null
+    ) {
       void loadFriendPanel(friendPanelTab);
       if (friendPanelTab !== "received") {
         void loadReceivedFriendRequests(true);
       }
+      return;
     }
+
+    if (tab === activeGalleryTab && chatNavigation.roomId === null) return;
+
+    navigate(createChatPath(
+      tab,
+      tab === "friends" ? friendPanelTab : "accepted",
+    ));
   };
 
   const handleSelectFriendPanel = (tab: FriendPanelTab) => {
@@ -2857,29 +2935,31 @@ export function ChatPage() {
       return;
     }
 
-    setFriendPanelTab(tab);
+    navigate(createChatPath("friends", tab));
   };
 
   const handleOpenFriendRequests = (tab: "sent" | "received") => {
     const shouldRefreshCurrentPanel = activeGalleryTab === "friends"
       && friendPanelTab === tab;
 
-    if (isChatOpenRef.current) {
-      handleMinimizeRoom();
-    }
-
     setViewedMemberProfile(null);
     setFriendNotice("");
-    setActiveGalleryTab("friends");
 
     if (shouldRefreshCurrentPanel) {
       void loadFriendPanel(tab);
-    } else if (friendPanelTab !== tab) {
-      setFriendPanelTab(tab);
+      return;
     }
+
+    navigate(createChatPath("friends", tab));
   };
 
-  const handleOpenRoom = (roomId: number, toggleIfActive = true) => {
+  const handleOpenRoom = (
+    roomId: number,
+    {
+      toggleIfActive = true,
+      replaceModalHistory = false,
+    }: OpenRoomOptions = {},
+  ) => {
     if (
       toggleIfActive
       && activeRoomIdRef.current === roomId
@@ -2893,13 +2973,10 @@ export function ChatPage() {
     setIsRoomMenuOpen(false);
     setOwnerTransferTarget(null);
     setOwnerTransferError("");
-    activeRoomIdRef.current = roomId;
-    isChatOpenRef.current = true;
-    setOpenRoomIds((current) => current.includes(roomId)
-      ? current
-      : [...current, roomId].slice(-3));
-    setActiveRoomId(roomId);
-    setIsChatOpen(true);
+    navigate(
+      createChatPath("joined", "accepted", roomId),
+      { replace: replaceModalHistory },
+    );
   };
 
   const handleCloseDirectChatModal = () => {
@@ -2924,8 +3001,10 @@ export function ChatPage() {
         }
 
         setViewedMemberProfile(null);
-        setActiveGalleryTab("joined");
-        handleOpenRoom(response.roomId, false);
+        handleOpenRoom(response.roomId, {
+          toggleIfActive: false,
+          replaceModalHistory: true,
+        });
         return;
       }
 
@@ -2987,8 +3066,10 @@ export function ChatPage() {
       setDirectChatTarget(null);
       setDirectMessageDraft("");
       setViewedMemberProfile(null);
-      setActiveGalleryTab("joined");
-      handleOpenRoom(response.roomId, false);
+      handleOpenRoom(response.roomId, {
+        toggleIfActive: false,
+        replaceModalHistory: true,
+      });
     } catch (requestError) {
       setDirectChatError(
         requestError instanceof Error
@@ -3011,6 +3092,7 @@ export function ChatPage() {
     setActiveRoomId(null);
     setIsChatOpen(false);
     setError("");
+    navigate(createChatPath("joined"), { replace: true });
   };
 
   const moveRoomAvatarPage = (offset: number) => {
@@ -4497,6 +4579,7 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(navigationNotice)}
         className="navigation-notice-modal"
+        onRequestClose={() => setNavigationNotice("")}
       >
         {navigationNotice && (
           <section
@@ -4524,7 +4607,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(pendingAttachment)}
         className="attachment-preview-modal"
-        onClick={handleCloseAttachmentConfirmation}
+        onRequestClose={handleCloseAttachmentConfirmation}
+        dismissible={!isUploadingAttachment}
       >
         {pendingAttachment && (
           <section
@@ -4635,6 +4719,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={isCreateRoomModalOpen}
         className="create-room-modal"
+        onRequestClose={handleCloseCreateRoomModal}
+        dismissible={!isCreatingRoom}
       >
         {isCreateRoomModalOpen && (
           <section
@@ -4709,6 +4795,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(renameTargetRoom)}
         className="create-room-modal"
+        onRequestClose={handleCloseRoomNameUpdateModal}
+        dismissible={!isUpdatingRoomName}
       >
         {renameTargetRoom && (
           <section
@@ -4783,6 +4871,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(deleteTargetRoom)}
         className="leave-room-modal"
+        onRequestClose={handleCloseDeleteRoomModal}
+        dismissible={!isDeletingRoom}
       >
         {deleteTargetRoom && (
           <section
@@ -4830,6 +4920,7 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(deletedRoomNotice)}
         className="leave-room-modal"
+        onRequestClose={handleConfirmDeletedRoom}
       >
         {deletedRoomNotice && (
           <section
@@ -4869,6 +4960,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(inviteTargetRoom)}
         className="invite-link-modal"
+        onRequestClose={handleCloseInviteLinkModal}
+        dismissible={inviteOperation === null}
       >
         {inviteTargetRoom && (
           <section
@@ -4997,6 +5090,7 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(viewedMemberProfile)}
         className="profile-modal"
+        onRequestClose={() => setViewedMemberProfile(null)}
       >
         {viewedMemberProfile && (
           <section
@@ -5200,6 +5294,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(directChatTarget)}
         className="profile-image-confirm-modal"
+        onRequestClose={handleCloseDirectChatModal}
+        dismissible={!isSendingDirectMessage}
       >
         {directChatTarget && (
           <section
@@ -5270,6 +5366,10 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(friendRemovalTarget)}
         className="profile-image-confirm-modal"
+        onRequestClose={() => setFriendRemovalTarget(null)}
+        dismissible={friendRemovalTarget === null || !friendOperationKeys.includes(
+          `unfollow:${friendRemovalTarget.memberId}`,
+        )}
       >
         {friendRemovalTarget && (
           <section
@@ -5319,6 +5419,12 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={isProfileModalOpen}
         className="profile-modal"
+        onRequestClose={() => setIsProfileModalOpen(false)}
+        dismissible={
+          !isUpdatingProfileImage
+          && !isSavingNickname
+          && !isSavingStatusMessage
+        }
       >
         {isProfileModalOpen && (
           <section
@@ -5552,6 +5658,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(memberBlockTarget)}
         className="profile-image-confirm-modal"
+        onRequestClose={() => setMemberBlockTarget(null)}
+        dismissible={!isUpdatingMemberBlock}
       >
         {memberBlockTarget && (
           <section
@@ -5610,6 +5718,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={isProfileImageSourceOpen}
         className="profile-image-confirm-modal"
+        onRequestClose={() => setIsProfileImageSourceOpen(false)}
+        dismissible={!isUpdatingProfileImage}
       >
         {isProfileImageSourceOpen && (
           <section
@@ -5662,6 +5772,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(profileImageAction)}
         className="profile-image-confirm-modal"
+        onRequestClose={handleCloseProfileImageConfirmation}
+        dismissible={!isUpdatingProfileImage}
       >
         {profileImageAction && (
           <section
@@ -5746,6 +5858,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(joinTargetRoom)}
         className="join-room-modal"
+        onRequestClose={handleCloseJoinRoomModal}
+        dismissible={joiningRoomId === null}
       >
         {joinTargetRoom && (
           <section
@@ -5792,6 +5906,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(leaveTargetRoom)}
         className="leave-room-modal"
+        onRequestClose={handleCloseLeaveRoomModal}
+        dismissible={!isLeavingRoom}
       >
         {leaveTargetRoom && (
           <section
@@ -5841,6 +5957,8 @@ export function ChatPage() {
       <TerminalModalTransition
         visible={Boolean(ownerTransferTarget && activeRoom)}
         className="owner-transfer-modal"
+        onRequestClose={handleCloseOwnerTransferModal}
+        dismissible={!isTransferringOwnership}
       >
         {ownerTransferTarget && activeRoom && (
           <section
