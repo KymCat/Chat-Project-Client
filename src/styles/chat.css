@@ -2694,7 +2694,8 @@
   line-height: 1.5;
 }
 
-.room-menu-dropdown .invite-link-menu-button {
+.room-menu-dropdown .invite-link-menu-button,
+.room-menu-dropdown .room-notification-menu-button {
   display: flex;
   width: 100%;
   min-height: 36px;
@@ -2714,15 +2715,24 @@
   text-align: left;
 }
 
-.room-menu-dropdown .invite-link-menu-button svg {
+.room-menu-dropdown .invite-link-menu-button svg,
+.room-menu-dropdown .room-notification-menu-button svg {
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
 }
 
-.room-menu-dropdown .invite-link-menu-button:hover:not(:disabled) {
+.room-menu-dropdown .invite-link-menu-button:hover:not(:disabled),
+.room-menu-dropdown .room-notification-menu-button:hover:not(:disabled) {
   color: #c7f7d3;
   background: rgba(93, 168, 116, 0.08);
+}
+
+.room-notification-menu-error {
+  margin: 0;
+  padding: 8px 10px;
+  color: #ffafc2;
+  font-size: var(--ui-text-xs);
 }
 
 .invite-link-modal {

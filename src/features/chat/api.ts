@@ -16,6 +16,7 @@ export interface ChatRoomResponse {
   name: string | null;
   role: "OWNER" | "MEMBER";
   lastMessageAt: string | null;
+  muted: boolean;
   unreadCount: number;
 }
 
@@ -152,6 +153,8 @@ export const chatRoomApi = {
     httpClient.post<void>(`/chat-rooms/${roomId}/members`),
   leave: (roomId: number) =>
     httpClient.delete<void>(`/chat-rooms/${roomId}/members`),
+  updateNotificationSettings: (roomId: number, muted: boolean) =>
+    httpClient.patch<void>(`/chat-rooms/${roomId}/notification-settings`, { muted }),
   getMembers: (roomId: number) =>
     httpClient.get<ChatRoomMemberResponse[]>(`/chat-rooms/${roomId}/members`),
   transferOwnership: (

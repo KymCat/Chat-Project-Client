@@ -37,6 +37,7 @@ import {
   type MemberEvent,
 } from "../features/chat/api";
 import { connectChat } from "../features/chat/stompClient";
+import { useNotificationSound } from "../features/chat/useNotificationSound";
 import {
   friendApi,
   type CursorPageResponse,
@@ -467,6 +468,8 @@ export function ChatPage() {
   const [inviteNotice, setInviteNotice] = useState("");
   const [isMemberListOpen, setIsMemberListOpen] = useState(false);
   const [isRoomMenuOpen, setIsRoomMenuOpen] = useState(false);
+  const [isUpdatingNotificationSettings, setIsUpdatingNotificationSettings] = useState(false);
+  const [notificationSettingsError, setNotificationSettingsError] = useState("");
   const [roomMembers, setRoomMembers] = useState<ChatRoomMemberResponse[]>([]);
   // 추가: 차단·해제 이벤트 발생 시 현재 Group 참여자 목록을 다시 조회한다.
   const [roomMemberVisibilityRevision, setRoomMemberVisibilityRevision] =
@@ -515,6 +518,10 @@ export function ChatPage() {
   const isChatOpenRef = useRef(false);
   const lastReadRequestByRoomRef = useRef(new Map<number, number>());
   const latestMessageIdByRoomRef = useRef(new Map<number, number>());
+  const notificationSettingsRef = useRef(new Map<number, { muted: boolean; revision: number }>());
+  const notificationSettingsRevisionRef = useRef(0);
+  const recentNotificationMessageIdsRef = useRef(new Set<number>());
+  const playNotificationSound = useNotificationSound();
   const isRecoveringConnectionRef = useRef(false);
   const messageSearchRequestIdRef = useRef(0);
   const pendingSearchScrollMessageIdRef = useRef<number | null>(null);
@@ -709,6 +716,7 @@ export function ChatPage() {
   }, []);
 
   const removeRoomState = useCallback((roomId: number) => {
+    notificationSettingsRef.current.delete(roomId);
     setRooms((current) => current.filter((room) => room.roomId !== roomId));
     setOpenRoomIds((current) => current.filter((openRoomId) => openRoomId !== roomId));
     setMessagesByRoom((current) => {
@@ -741,7 +749,19 @@ export function ChatPage() {
     }
 
     try {
-      const response = await chatRoomApi.getAll();
+      const revisionAtRequest = notificationSettingsRevisionRef.current;
+      const loadedRooms = await chatRoomApi.getAll();
+      const nextSettings = new Map<number, { muted: boolean; revision: number }>();
+      const response = loadedRooms.map((room) => {
+        const current = notificationSettingsRef.current.get(room.roomId);
+        // A request started before a successful update may still contain the old setting.
+        const setting = current && current.revision > revisionAtRequest
+          ? current
+          : { muted: room.muted, revision: revisionAtRequest };
+        nextSettings.set(room.roomId, setting);
+        return { ...room, muted: setting.muted };
+      });
+      notificationSettingsRef.current = nextSettings;
       setRooms(response);
       setOpenRoomIds((current) => current.filter((roomId) =>
         response.some((room) => room.roomId === roomId),
@@ -1061,6 +1081,36 @@ export function ChatPage() {
     }
   }, [loadAvailableRooms, loadRooms]);
 
+  const notifyIncomingMessage = useCallback(async (
+    message: ChatMessage,
+    roomListRequest?: ReturnType<typeof loadRooms>,
+  ) => {
+    if (
+      memberId === null
+      || message.senderId === null
+      || message.senderId === memberId
+      || message.type === "SYSTEM"
+      || message.deleted
+    ) return;
+
+    const recentIds = recentNotificationMessageIdsRef.current;
+    if (recentIds.has(message.messageId)) return;
+    recentIds.add(message.messageId);
+    if (recentIds.size > 256) {
+      for (const oldestId of recentIds) {
+        recentIds.delete(oldestId);
+        break;
+      }
+    }
+
+    if (!notificationSettingsRef.current.has(message.roomId)) {
+      await (roomListRequest ?? loadRooms(undefined, true));
+    }
+    if (notificationSettingsRef.current.get(message.roomId)?.muted === false) {
+      playNotificationSound();
+    }
+  }, [loadRooms, memberId, playNotificationSound]);
+
   const handleIncomingDirectMessage = useCallback((response: DirectChatResponse) => {
     const receivedMessage = response.message;
     setMessagesByRoom((current) => ({
@@ -1083,12 +1133,13 @@ export function ChatPage() {
 
     const isViewingRoom = isViewingRoomAtBottom(response.roomId);
     shouldScrollToBottomRef.current = isViewingRoom;
-    void loadRooms(undefined, true);
+    const roomListRequest = loadRooms(undefined, true);
+    void notifyIncomingMessage(receivedMessage, roomListRequest);
 
     if (isViewingRoom) {
       void markRoomAsRead(response.roomId, receivedMessage.messageId);
     }
-  }, [isViewingRoomAtBottom, loadRooms, markRoomAsRead]);
+  }, [isViewingRoomAtBottom, loadRooms, markRoomAsRead, notifyIncomingMessage]);
 
   const handleMemberVisibilityChanged = useCallback((event: MemberEvent) => {
     const changedMemberId = event.memberId;
@@ -1155,6 +1206,8 @@ export function ChatPage() {
 
   useEffect(() => {
     if (!accessToken) {
+      notificationSettingsRef.current.clear();
+      recentNotificationMessageIdsRef.current.clear();
       clearProfileImageCache();
       setMemberProfile(null);
       setFriends([]);
@@ -1313,6 +1366,8 @@ export function ChatPage() {
 
         if (!isCreated) return;
 
+        void notifyIncomingMessage(receivedMessage);
+
         setChatSendErrorsByRoom((current) => {
           if (!(receivedMessage.roomId in current)) return current;
           const next = { ...current };
@@ -1408,6 +1463,7 @@ export function ChatPage() {
     isViewingRoomAtBottom,
     markRoomAsRead,
     memberId,
+    notifyIncomingMessage,
     removeRoomState,
     recoverAfterReconnect,
   ]);
@@ -2548,7 +2604,34 @@ export function ChatPage() {
 
   const handleToggleRoomMenu = () => {
     setIsMemberListOpen(false);
+    setNotificationSettingsError("");
     setIsRoomMenuOpen((isOpen) => !isOpen);
+  };
+
+  const handleToggleRoomNotifications = async (room: ChatRoomResponse) => {
+    if (isUpdatingNotificationSettings) return;
+
+    const muted = !room.muted;
+    setIsUpdatingNotificationSettings(true);
+    setNotificationSettingsError("");
+    try {
+      await chatRoomApi.updateNotificationSettings(room.roomId, muted);
+      notificationSettingsRef.current.set(room.roomId, {
+        muted,
+        revision: ++notificationSettingsRevisionRef.current,
+      });
+      setRooms((current) => current.map((item) =>
+        item.roomId === room.roomId ? { ...item, muted } : item,
+      ));
+    } catch (requestError) {
+      setNotificationSettingsError(
+        requestError instanceof Error
+          ? requestError.message
+          : "알림음 설정을 변경하지 못했습니다.",
+      );
+    } finally {
+      setIsUpdatingNotificationSettings(false);
+    }
   };
 
   const handleOpenInviteLinkModal = async () => {
@@ -3913,6 +3996,38 @@ export function ChatPage() {
               {isRoomMenuOpen && activeRoom && (
                 <div className="room-menu-dropdown" id="chat-room-menu">
                   <p className="terminal-menu-command">$ room --menu</p>
+                  <button
+                    className="room-notification-menu-button"
+                    type="button"
+                    onClick={() => void handleToggleRoomNotifications(activeRoom)}
+                    disabled={isUpdatingNotificationSettings}
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                      <path
+                        d="M8 16a2 2 0 0 0 4 0M4 13h12l-1.5-2V8a4.5 4.5 0 1 0-9 0v3L4 13Z"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      {activeRoom.muted && (
+                        <path
+                          d="M3 3l14 14"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
+                      )}
+                    </svg>
+                    {isUpdatingNotificationSettings
+                      ? "알림음 설정 저장 중..."
+                      : activeRoom.muted ? "알림음 켜기" : "알림음 끄기"}
+                  </button>
+                  {notificationSettingsError && (
+                    <p className="room-notification-menu-error" role="alert">
+                      {notificationSettingsError}
+                    </p>
+                  )}
                   {activeRoom.type === "GROUP" && (
                     <>
                       <button
